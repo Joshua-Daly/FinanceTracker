@@ -431,6 +431,21 @@ function submitPin(){
   else{ document.getElementById('lockError').textContent = 'Incorrect PIN'; pinBuffer=''; renderPinDots(); }
 }
 function unlock(){ document.getElementById('lockScreen').style.display='none'; document.getElementById('app').style.display='block'; renderAll(); }
+function relock(){
+  pinBuffer=''; settingUpPin=false; firstPinEntry='';
+  document.getElementById('lockError').textContent='';
+  document.getElementById('lockPrompt').textContent = 'Enter your PIN';
+  renderPinDots();
+  document.getElementById('app').style.display='none';
+  document.getElementById('lockScreen').style.display='flex';
+}
+// Re-lock whenever the app is backgrounded/hidden (switching apps, going to
+// homescreen, turning the screen off) or the tab loses focus, and also on
+// return so a fresh unlock is always required.
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='hidden' && state.pin){ relock(); }
+});
+window.addEventListener('pagehide', ()=>{ if(state.pin) relock(); });
 function initLock(){
   loadState(); renderNumpad(); renderPinDots();
   if(!state.pin){ document.getElementById('lockSetupNote').style.display='block'; document.getElementById('lockPrompt').textContent = 'Choose a 4-digit PIN'; }
