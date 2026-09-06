@@ -62,8 +62,7 @@ main{ padding:22px 20px; max-width:100%; overflow-x:hidden; }
 .grid{ display:grid; gap:16px; max-width:100%; }
 .grid.cols-3{ grid-template-columns:repeat(3,1fr); }
 .grid.cols-2{ grid-template-columns:repeat(2,1fr); }
-.grid.cols-4{ grid-template-columns:repeat(4,1fr); }
-@media (max-width:820px){ .grid.cols-3, .grid.cols-2, .grid.cols-4{ grid-template-columns:1fr; } }
+@media (max-width:820px){ .grid.cols-3, .grid.cols-2{ grid-template-columns:1fr; } }
 
 .card{ background:var(--paper-raised); border:1px solid var(--paper-line); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow); transition:border-color .2s; min-width:0; overflow:hidden; }
 .card:hover{ border-color:#463C31; }
@@ -127,6 +126,14 @@ main{ padding:22px 20px; max-width:100%; overflow-x:hidden; }
 .chipRow{ display:flex; gap:8px; margin-bottom:14px; }
 .chip{ flex:1; text-align:center; padding:8px; border:1px solid var(--paper-line); border-radius:8px; font-size:.78rem; cursor:pointer; color:var(--ink-dim); transition:all .15s; }
 .chip.active{ border-color:var(--brass); color:var(--brass); background:rgba(201,162,39,0.08); }
+.splitPersonRow{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.splitPersonRow label{ display:flex; align-items:center; gap:8px; flex:1; min-width:0; font-size:.85rem; text-transform:none; letter-spacing:0; color:var(--ink); cursor:pointer; }
+.splitPersonRow input[type=checkbox]{ width:18px; height:18px; accent-color:var(--brass); flex-shrink:0; }
+.splitPersonRow input[type=number]{ width:90px; flex-shrink:0; background:var(--paper-raised2); border:1px solid var(--paper-line); color:var(--ink); padding:8px 10px; border-radius:8px; font-family:inherit; font-size:16px; }
+.splitTotalPreview{ font-size:.75rem; color:var(--ink-faint); margin-top:4px; }
+.splitTotalPreview.ok{ color:var(--sage); } .splitTotalPreview.warn{ color:var(--brass); }
+.chipTag{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--paper-line); border-radius:20px; padding:5px 8px 5px 12px; font-size:.78rem; color:var(--ink-dim); margin:4px 6px 4px 0; }
+.chipTag button{ background:none; border:none; color:var(--rust); cursor:pointer; font-size:.9rem; line-height:1; padding:2px; }
 
 .empty{ text-align:center; padding:50px 20px; color:var(--ink-faint); }
 .empty .ico{ font-size:1.8rem; margin-bottom:10px; opacity:.6; }
@@ -138,6 +145,8 @@ table.rep td{ padding:9px 8px; border-bottom:1px dashed var(--paper-line); overf
 table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
 .upItem{ display:flex; align-items:center; gap:8px; padding:10px 4px; border-bottom:1px dashed var(--paper-line); }
 .upItem .tag{ font-size:.62rem; text-transform:uppercase; padding:2px 7px; border-radius:4px; background:rgba(201,162,39,0.12); color:var(--brass); flex-shrink:0; }
+.personRow{ display:flex; align-items:center; gap:10px; padding:12px 4px; border-bottom:1px dashed var(--paper-line); }
+.personRow .name{ flex:1; min-width:0; font-weight:500; }
 ::-webkit-scrollbar{ width:8px; } ::-webkit-scrollbar-thumb{ background:var(--paper-line); border-radius:4px; }
 </style>
 </head>
@@ -190,9 +199,9 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
           <div class="sub">Remaining balance minus bills, EMIs &amp; card dues due in 30 days</div>
         </div>
         <div class="card">
-          <div class="label" id="owedLabel">Net With Partner</div>
+          <div class="label">Net Owed (All People)</div>
           <div class="big amount" id="dashOwed">₹0.00</div>
-          <div class="sub" id="dashOwedSub">You're settled up</div>
+          <div class="sub" id="dashOwedSub">See Who Owes Who for the breakdown</div>
         </div>
       </div>
       <div class="grid cols-3" style="margin-top:16px;">
@@ -215,6 +224,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
     </section>
 
     <section class="view" id="view-pending">
+      <div class="infobar">Only transactions synced from Gmail land here for review. Anything you add yourself with the + button goes straight into your Ledger — no extra approval step needed.</div>
       <div class="section-title"><h2>Pending Approval</h2>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn ghost small" id="syncSheetBtn">Sync from Gmail</button>
@@ -230,16 +240,18 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
     </section>
 
     <section class="view" id="view-owed">
-      <div class="infobar">This tab only reflects transactions logged on <em>this</em> device. Since this app currently runs local-only (no shared backend), the true net between you and your partner is only accurate if you both periodically compare and reconcile — e.g. via CSV export or the Reports email.</div>
+      <div class="infobar">This tab only reflects transactions logged on <em>this</em> device. Since this app currently runs local-only (no shared backend), balances are only accurate if everyone periodically compares and reconciles — e.g. via CSV export or the Reports email.</div>
       <div class="grid cols-2">
         <div class="card">
-          <div class="label" id="owedLabel2">Net Balance</div>
+          <div class="label">Net Owed (All People)</div>
           <div class="big amount" id="owedBig">₹0.00</div>
-          <div class="sub" id="owedSub2"></div>
+          <div class="sub" id="owedSub2">Positive = owed to you overall</div>
           <button class="btn" style="margin-top:14px;" id="settleBtn">Settle Up</button>
         </div>
-        <div class="card"><div class="label">Split Transactions</div><div id="splitList" style="max-height:260px; overflow-y:auto;"></div></div>
+        <div class="card"><div class="label">By Person</div><div id="peopleBalances"></div></div>
       </div>
+      <div class="section-title"><h2>Split Transactions</h2></div>
+      <div id="splitList" style="max-height:320px; overflow-y:auto;"></div>
       <div class="section-title"><h2>Settlement History</h2><span class="sub" style="color:var(--ink-faint);">tap an entry to remove it</span></div>
       <div id="settleHistory"></div>
     </section>
@@ -294,8 +306,20 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
     <section class="view" id="view-settings">
       <div class="grid cols-2">
         <div class="card">
-          <div class="label">Partner Name</div>
-          <div class="field" style="margin-top:8px;"><input type="text" id="partnerName" placeholder="e.g. Sister"></div>
+          <div class="label">People You Split With</div>
+          <p class="sub" style="margin-bottom:10px;">Add anyone you regularly split expenses with — roommates, siblings, partners. "Me" is always included automatically.</p>
+          <div id="peopleChips" style="margin-bottom:10px;"></div>
+          <div class="row2"><div class="field" style="margin-bottom:0;"><input type="text" id="newPersonInput" placeholder="Add a name..."></div><button class="btn ghost small" id="addPersonBtn">Add</button></div>
+        </div>
+        <div class="card">
+          <div class="label">Categories</div>
+          <p class="sub" style="margin-bottom:10px;">Add or remove spending categories. "Income" and "Credit Card" are required by the app's logic and can't be removed.</p>
+          <div id="categoryChips" style="margin-bottom:10px;"></div>
+          <div class="row2"><div class="field" style="margin-bottom:0;"><input type="text" id="newCategoryInput" placeholder="Add a category..."></div><button class="btn ghost small" id="addCategoryBtn">Add</button></div>
+        </div>
+      </div>
+      <div class="grid cols-2" style="margin-top:16px;">
+        <div class="card">
           <div class="label">Google Sheet Sync URL <span style="color:var(--ink-faint); text-transform:none;">(Apps Script Web App link)</span></div>
           <div class="field" style="margin-top:8px;"><input type="text" id="sheetUrlInput" placeholder="https://script.google.com/macros/s/.../exec"></div>
           <button class="btn" id="saveSettingsBtn">Save Settings</button>
@@ -329,29 +353,20 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
     </div>
     <div class="field"><label>Merchant</label><input type="text" id="txMerchant" placeholder="e.g. Big Bazaar"></div>
     <div class="field"><label>What was this for?</label><textarea id="txNote" placeholder="e.g. Weekly groceries, movie tickets with friends..."></textarea></div>
-    <div class="field"><label>Category</label>
-      <select id="txCategory">
-        <option>Shared</option><option>Commute</option><option>Food</option><option>Shopping</option>
-        <option>Misc</option><option>Social</option><option>Personal</option><option>Investments</option>
-        <option>Credit Card</option><option>Income</option>
-      </select>
-    </div>
+    <div class="field"><label>Category</label><select id="txCategory"></select></div>
     <div class="field" id="txPaidWithWrap"><label>Paid With</label><select id="txPaidWith"><option value="bank">Bank / Cash</option></select></div>
     <div class="field" id="txCardPaidWrap" style="display:none;"><label>Which card is this paying?</label><select id="txCardPaid"></select></div>
-    <div class="field"><label>Paid By</label><input type="text" id="txPaidBy" placeholder="e.g. Me" value="Me"></div>
+    <div class="field"><label>Paid By</label><select id="txPaidBy"></select></div>
     <div class="toggle"><input type="checkbox" id="txShared"><label for="txShared" style="margin:0;text-transform:none;font-size:.85rem;color:var(--ink);">This is a shared expense</label></div>
     <div class="splitBox" id="splitBox">
       <div class="chipRow"><div class="chip active" data-split="percent">Percentage Split</div><div class="chip" data-split="exact">Exact Amounts</div></div>
-      <div id="splitPercentFields" class="row2">
-        <div class="field"><label>My %</label><input type="number" id="splitMePct" value="50"></div>
-        <div class="field"><label>Partner %</label><input type="number" id="splitTheirPct" value="50"></div>
-      </div>
-      <div id="splitExactFields" class="row2" style="display:none;">
-        <div class="field"><label>My Amount</label><input type="number" id="splitMeExact" step="0.01"></div>
-        <div class="field"><label>Partner Amount</label><input type="number" id="splitTheirExact" step="0.01"></div>
+      <div id="txSplitParticipants"></div>
+      <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+        <button class="btn ghost small" type="button" id="txSplitEvenlyBtn">Split Evenly</button>
+        <div class="splitTotalPreview" id="txSplitPreview"></div>
       </div>
     </div>
-    <div class="modalActions"><button class="btn ghost" id="txCancel">Cancel</button><button class="btn" id="txSave">Add to Pending</button></div>
+    <div class="modalActions"><button class="btn ghost" id="txCancel">Cancel</button><button class="btn" id="txSave">Add to Ledger</button></div>
   </div>
 </div>
 
@@ -360,8 +375,9 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
 <div class="toast" id="toast"></div>
 
 <script>
-const CATS = ["Shared","Commute","Food","Shopping","Misc","Social","Personal","Investments","Credit Card","Income"];
-const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, partner: "Sister", pin: null, sheetSyncUrl: '' };
+const DEFAULT_CATEGORIES = ["Shared","Commute","Food","Shopping","Misc","Social","Personal","Investments","Credit Card","Income"];
+const PROTECTED_CATEGORIES = ["Income","Credit Card"];
+const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '' };
 let currentEditTx = null;
 let currentSplitType = 'percent';
 
@@ -371,19 +387,22 @@ function todayISO(){ return new Date().toISOString().slice(0,10); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function escapeHTML(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function emptyHTML(msg){ return `<div class="empty"><div class="ico">◇</div>${msg}</div>`; }
+function participantList(){ return ['Me', ...state.people]; }
 
 /* ---------------- STORAGE ---------------- */
 function loadState(){
   try{ const raw = localStorage.getItem('familyledger-data'); if(raw) Object.assign(state, JSON.parse(raw)); }catch(e){ console.error('load failed', e); }
   try{ const p = localStorage.getItem('familyledger-pin'); if(p) state.pin = p; }catch(e){ state.pin = null; }
   if(!state.balanceAsOf) state.balanceAsOf = todayISO();
+  if(!state.categories || state.categories.length===0) state.categories = [...DEFAULT_CATEGORIES];
+  if(!state.people || state.people.length===0){ state.people = state.partner ? [state.partner] : ['Sister']; }
 }
 function saveState(){
   try{
     localStorage.setItem('familyledger-data', JSON.stringify({
       transactions: state.transactions, recurring: state.recurring, cards: state.cards,
       budgets: state.budgets, settlements: state.settlements, balance: state.balance, balanceAsOf: state.balanceAsOf,
-      partner: state.partner, sheetSyncUrl: state.sheetSyncUrl
+      people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl
     }));
   }catch(e){ console.error('save failed', e); toast('Could not save to this browser'); }
 }
@@ -439,12 +458,7 @@ function relock(){
   document.getElementById('app').style.display='none';
   document.getElementById('lockScreen').style.display='flex';
 }
-// Re-lock whenever the app is backgrounded/hidden (switching apps, going to
-// homescreen, turning the screen off) or the tab loses focus, and also on
-// return so a fresh unlock is always required.
-document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState==='hidden' && state.pin){ relock(); }
-});
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden' && state.pin){ relock(); } });
 window.addEventListener('pagehide', ()=>{ if(state.pin) relock(); });
 function initLock(){
   loadState(); renderNumpad(); renderPinDots();
@@ -471,22 +485,16 @@ function cashInOut(monthStr){
   approvedTx().filter(t=>monthKey(t.date)===m).forEach(t=>{ if(t.category==='Income') inflow += t.amount; else outflow += t.amount; });
   return {inflow, outflow};
 }
-// Running balance: your set opening balance, adjusted by everything approved since
-// that baseline date. Purchases paid "with" a specific credit card do NOT touch this
-// balance (you haven't paid cash for them yet) -- only bank/cash transactions and
-// actual credit-card BILL PAYMENTS do.
 function runningBalance(){
   let bal = Number(state.balance)||0;
   const baseline = state.balanceAsOf || '1970-01-01';
   approvedTx().forEach(t=>{
     if(t.date < baseline) return;
-    if(t.paymentMethod && t.paymentMethod !== 'bank') return; // charged to a card, not paid from bank yet
+    if(t.paymentMethod && t.paymentMethod !== 'bank') return;
     if(t.category==='Income') bal += t.amount; else bal -= t.amount;
   });
   return bal;
 }
-// A card's outstanding balance: its starting balance, plus everything charged TO
-// that card, minus any bill payments recorded against it.
 function cardBalance(card){
   let bal = Number(card.openingBalance)||0;
   approvedTx().forEach(t=>{
@@ -511,15 +519,25 @@ function upcomingItems(days=30){
 }
 function upcomingBillsTotal(days=30){ return upcomingItems(days).reduce((s,i)=>s+i.amount,0); }
 function safeToSpend(){ return runningBalance() - upcomingBillsTotal(30); }
-function netOwed(){
-  let net = 0;
-  approvedTx().filter(t=>t.isShared).forEach(t=>{
-    const mine = t.split.mine, theirs = t.split.theirs;
-    if(t.paidBy && t.paidBy.toLowerCase()==='me'){ net += theirs; } else { net -= mine; }
+
+// Balances are computed from "Me"'s perspective: positive = that person
+// owes Me, negative = Me owes that person. Debts between two OTHER named
+// people (neither of whom is "Me") aren't tracked -- this app is a
+// single-user ledger, not a full multi-party settlement graph.
+function personBalances(){
+  const balances = {}; state.people.forEach(p=> balances[p]=0);
+  approvedTx().filter(t=>t.isShared && t.split && t.split.shares).forEach(t=>{
+    const payer = t.paidBy || 'Me';
+    Object.entries(t.split.shares).forEach(([person, amt])=>{
+      if(person === payer) return;
+      if(payer.toLowerCase()==='me'){ if(balances[person]!==undefined) balances[person]+=amt; }
+      else if(person.toLowerCase()==='me'){ if(balances[payer]!==undefined) balances[payer]-=amt; }
+    });
   });
-  state.settlements.forEach(s=> net -= s.amount);
-  return net;
+  state.settlements.forEach(s=>{ if(balances[s.person]!==undefined) balances[s.person]+=s.delta; });
+  return balances;
 }
+function netOwedTotal(){ return Object.values(personBalances()).reduce((a,b)=>a+b,0); }
 function categorySpend(monthStr){
   const m = monthStr || thisMonth(); const map = {};
   approvedTx().filter(t=>monthKey(t.date)===m && t.category!=='Income').forEach(t=>{ map[t.category] = (map[t.category]||0) + t.amount; });
@@ -534,26 +552,97 @@ function merchantSpend(monthStr){
   return map;
 }
 
+/* ---------------- SPLIT PARTICIPANT UI (shared by Add + Edit modals) ---------------- */
+function splitParticipantRowsHTML(prefix, existingShares, splitType){
+  existingShares = existingShares || {};
+  return participantList().map(name=>{
+    const checked = existingShares[name] !== undefined;
+    const val = checked ? existingShares[name] : '';
+    return `<div class="splitPersonRow">
+      <label><input type="checkbox" class="${prefix}SplitInclude" data-person="${escapeHTML(name)}" ${checked?'checked':''}><span>${escapeHTML(name)}</span></label>
+      <input type="number" class="${prefix}SplitValue" data-person="${escapeHTML(name)}" step="0.01" placeholder="${splitType==='exact'?'₹':'%'}" style="display:${checked?'inline-block':'none'};" value="${val}">
+    </div>`;
+  }).join('');
+}
+function wireSplitParticipantEvents(prefix, containerId, amountInputId, previewId){
+  const container = document.getElementById(containerId);
+  container.addEventListener('change', (e)=>{
+    if(e.target.classList.contains(prefix+'SplitInclude')){
+      const valInput = container.querySelector(`.${prefix}SplitValue[data-person="${CSS.escape(e.target.dataset.person)}"]`);
+      if(valInput){ valInput.style.display = e.target.checked ? 'inline-block' : 'none'; if(!e.target.checked) valInput.value=''; }
+      updateSplitPreview(prefix, containerId, amountInputId, previewId);
+    }
+  });
+  container.addEventListener('input', (e)=>{ if(e.target.classList.contains(prefix+'SplitValue')) updateSplitPreview(prefix, containerId, amountInputId, previewId); });
+}
+function updateSplitPreview(prefix, containerId, amountInputId, previewId){
+  const container = document.getElementById(containerId);
+  const type = document.querySelector(`#${prefix==='tx'?'splitBox':'ap'+'SplitBox'} .chip.active`)?.dataset.split || 'percent';
+  let sum = 0;
+  container.querySelectorAll(`.${prefix}SplitInclude:checked`).forEach(cb=>{
+    const valInput = container.querySelector(`.${prefix}SplitValue[data-person="${CSS.escape(cb.dataset.person)}"]`);
+    sum += parseFloat(valInput?.value)||0;
+  });
+  const amount = parseFloat(document.getElementById(amountInputId).value)||0;
+  const target = type==='percent' ? 100 : amount;
+  const preview = document.getElementById(previewId);
+  const label = type==='percent' ? `${sum.toFixed(0)}% / 100%` : `${fmt(sum)} / ${fmt(amount)}`;
+  preview.textContent = `Split total: ${label}`;
+  preview.className = 'splitTotalPreview ' + (Math.abs(sum-target)<0.5 ? 'ok' : 'warn');
+}
+function evenSplit(prefix, containerId, amountInputId, previewId){
+  const container = document.getElementById(containerId);
+  const type = document.querySelector(`#${prefix==='tx'?'splitBox':'ap'+'SplitBox'} .chip.active`)?.dataset.split || 'percent';
+  let checked = [...container.querySelectorAll(`.${prefix}SplitInclude:checked`)];
+  if(checked.length===0){ checked = [...container.querySelectorAll(`.${prefix}SplitInclude`)]; checked.forEach(cb=>cb.checked=true); }
+  const amount = parseFloat(document.getElementById(amountInputId).value)||0;
+  const n = checked.length || 1;
+  checked.forEach(cb=>{
+    const valInput = container.querySelector(`.${prefix}SplitValue[data-person="${CSS.escape(cb.dataset.person)}"]`);
+    if(valInput){ valInput.style.display='inline-block'; valInput.value = type==='percent' ? (100/n).toFixed(2) : (amount/n).toFixed(2); }
+  });
+  updateSplitPreview(prefix, containerId, amountInputId, previewId);
+}
+function getSplitShares(prefix, containerId, amountInputId){
+  const container = document.getElementById(containerId);
+  const type = document.querySelector(`#${prefix==='tx'?'splitBox':'ap'+'SplitBox'} .chip.active`)?.dataset.split || 'percent';
+  const amount = parseFloat(document.getElementById(amountInputId).value)||0;
+  const shares = {};
+  container.querySelectorAll(`.${prefix}SplitInclude:checked`).forEach(cb=>{
+    const person = cb.dataset.person;
+    const valInput = container.querySelector(`.${prefix}SplitValue[data-person="${CSS.escape(person)}"]`);
+    const raw = parseFloat(valInput?.value)||0;
+    shares[person] = type==='percent' ? amount*raw/100 : raw;
+  });
+  return { type, shares };
+}
+
 /* ---------------- RENDER ---------------- */
 let chartRef = null;
 function renderAll(){
-  document.getElementById('partnerTag').textContent = 'shared with ' + (state.partner||'—');
-  document.getElementById('owedLabel').textContent = (state.partner||'Partner') + ' Owes You';
-  document.getElementById('owedLabel2').textContent = 'Net With ' + (state.partner||'Partner');
-  renderDashboard(); renderPending(); renderLedger(); renderOwed(); renderBudgets(); renderRecurring();
-  document.getElementById('partnerName').value = state.partner||'';
+  document.getElementById('partnerTag').textContent = 'shared with ' + (state.people.length ? state.people.join(', ') : '—');
+  renderDashboard(); renderPending(); renderLedger(); renderOwed(); renderBudgets(); renderRecurring(); renderSettingsChips();
   document.getElementById('sheetUrlInput').value = state.sheetSyncUrl||'';
   document.getElementById('balanceInput').value = state.balance||0;
   document.getElementById('balanceAsOfInput').value = state.balanceAsOf||todayISO();
   populatePaymentDropdowns();
+  populateCategoryDropdown('txCategory');
+  populatePaidByDropdown('txPaidBy');
   if(!document.getElementById('reportMonth').value) document.getElementById('reportMonth').value = thisMonth();
 }
-
 function populatePaymentDropdowns(){
   const opts = '<option value="bank">Bank / Cash</option>' + state.cards.map(c=>`<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('');
   const cardOnly = state.cards.map(c=>`<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('') || '<option value="">No cards added yet</option>';
   const pw = document.getElementById('txPaidWith'); if(pw) pw.innerHTML = opts;
   const cp = document.getElementById('txCardPaid'); if(cp) cp.innerHTML = cardOnly;
+}
+function populateCategoryDropdown(id, selected){
+  const el = document.getElementById(id); if(!el) return;
+  el.innerHTML = state.categories.map(c=>`<option ${c===selected?'selected':''}>${escapeHTML(c)}</option>`).join('');
+}
+function populatePaidByDropdown(id, selected){
+  const el = document.getElementById(id); if(!el) return;
+  el.innerHTML = participantList().map(p=>`<option ${p===selected?'selected':''}>${escapeHTML(p)}</option>`).join('');
 }
 document.getElementById('txCategory').addEventListener('change', (e)=>{
   const isCC = e.target.value === 'Credit Card';
@@ -569,11 +658,11 @@ function renderDashboard(){
   document.getElementById('dashOut').textContent = fmt(outflow);
   const total = inflow+outflow || 1;
   document.getElementById('dashFlowBar').style.width = Math.min(100, (outflow/total)*100)+'%';
-  const owed = netOwed();
+  const owed = netOwedTotal();
   const owedEl = document.getElementById('dashOwed');
   owedEl.textContent = fmt(Math.abs(owed));
   owedEl.className = 'big amount ' + (owed>0.004?'positive': owed<-0.004?'negative':'');
-  document.getElementById('dashOwedSub').textContent = owed>0.004 ? (state.partner||'Partner')+' owes you' : owed<-0.004 ? 'You owe '+(state.partner||'partner') : "You're settled up";
+  document.getElementById('dashOwedSub').textContent = owed>0.004 ? "You're owed more than you owe" : owed<-0.004 ? "You owe more than you're owed" : "Everyone's settled up";
 
   const upcoming = upcomingItems(30);
   document.getElementById('dashUpcoming').innerHTML = upcoming.length ? upcoming.map(i=>
@@ -638,18 +727,28 @@ function renderLedger(){
   bindRowClicks('ledgerList');
 }
 function renderOwed(){
-  const owed = netOwed();
+  const balances = personBalances();
+  const total = netOwedTotal();
   const big = document.getElementById('owedBig');
-  big.textContent = fmt(Math.abs(owed));
-  big.className = 'big amount ' + (owed>0.004?'positive': owed<-0.004?'negative':'');
-  document.getElementById('owedSub2').textContent = owed>0.004 ? (state.partner||'Partner')+' owes you '+fmt(owed) : owed<-0.004 ? 'You owe '+(state.partner||'partner')+' '+fmt(-owed) : 'All settled up';
-  const splits = approvedTx().filter(t=>t.isShared).sort((a,b)=>b.date.localeCompare(a.date));
+  big.textContent = fmt(Math.abs(total));
+  big.className = 'big amount ' + (total>0.004?'positive': total<-0.004?'negative':'');
+
+  const peopleWrap = document.getElementById('peopleBalances');
+  peopleWrap.innerHTML = state.people.length ? state.people.map(p=>{
+    const bal = balances[p]||0;
+    const cls = bal>0.004?'positive':bal<-0.004?'negative':'';
+    const label = bal>0.004 ? `${p} owes you` : bal<-0.004 ? `You owe ${p}` : 'Settled up';
+    return `<div class="personRow"><span class="name">${escapeHTML(p)}</span><span class="sub" style="margin:0 8px;">${label}</span><span class="amt ${cls}">${fmt(Math.abs(bal))}</span></div>`;
+  }).join('') : emptyHTML('No people added yet — add some in Settings');
+
+  const splits = approvedTx().filter(t=>t.isShared && t.split).sort((a,b)=>b.date.localeCompare(a.date));
   document.getElementById('splitList').innerHTML = splits.length ? splits.map(t=>{
-    const theyOwe = t.paidBy && t.paidBy.toLowerCase()==='me';
-    return `<div class="ledgerRow"><div class="info"><div class="merchant">${escapeHTML(t.merchant)}</div><div class="who">${t.date}</div></div><div class="leader"></div><span class="amt">${theyOwe? (state.partner||'Partner')+' owes '+fmt(t.split.theirs) : 'You owe '+fmt(t.split.mine)}</span></div>`;
+    const shareText = Object.entries(t.split.shares).map(([p,amt])=>`${escapeHTML(p)}: ${fmt(amt)}`).join(' · ');
+    return `<div class="ledgerRow"><div class="info"><div class="merchant">${escapeHTML(t.merchant)}</div><div class="who">${t.date} · paid by ${escapeHTML(t.paidBy)}</div><div class="note">${shareText}</div></div></div>`;
   }).join('') : emptyHTML('No shared expenses yet');
+
   document.getElementById('settleHistory').innerHTML = state.settlements.length ?
-    state.settlements.slice().reverse().map(s=>`<div class="ledgerRow" data-sid="${s.id}"><div class="info"><div class="merchant">Settled</div><div class="who">${s.date}</div></div><div class="leader"></div><span class="amt">${fmt(s.amount)}</span></div>`).join('')
+    state.settlements.slice().reverse().map(s=>`<div class="ledgerRow" data-sid="${s.id}"><div class="info"><div class="merchant">Settled with ${escapeHTML(s.person)}</div><div class="who">${s.date}</div></div><div class="leader"></div><span class="amt">${fmt(s.amount)}</span></div>`).join('')
     : emptyHTML('No settlements recorded');
   bindSettlementClicks();
 }
@@ -658,7 +757,7 @@ function bindSettlementClicks(){
     el.addEventListener('click', ()=>{
       const sid = el.dataset.sid;
       const s = state.settlements.find(x=>x.id===sid);
-      openGenModal(`<h3>Remove this settlement?</h3><p class="sub" style="margin-bottom:16px;">This will add ${fmt(s.amount)} back into your Who Owes Who balance. Use this if a settlement was recorded by mistake.</p>
+      openGenModal(`<h3>Remove this settlement?</h3><p class="sub" style="margin-bottom:16px;">This will undo the ${fmt(s.amount)} settlement recorded with ${escapeHTML(s.person)}.</p>
         <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn danger" id="confirmSettleDelete">Remove</button></div>`);
       document.getElementById('confirmSettleDelete').onclick = ()=>{
         state.settlements = state.settlements.filter(x=>x.id!==sid);
@@ -687,6 +786,47 @@ function renderRecurring(){
   }).join('') : emptyHTML('No credit cards tracked yet');
   document.querySelectorAll('#cardList .ledgerRow').forEach(el=> el.addEventListener('click', ()=> openEditCard(el.dataset.cid)));
 }
+function renderSettingsChips(){
+  document.getElementById('peopleChips').innerHTML = state.people.map(p=>
+    `<span class="chipTag">${escapeHTML(p)}<button data-person="${escapeHTML(p)}" class="removePersonBtn">×</button></span>`
+  ).join('') || '<span class="sub">No one added yet.</span>';
+  document.querySelectorAll('.removePersonBtn').forEach(b=> b.onclick = ()=>{
+    const name = b.dataset.person;
+    openGenModal(`<h3>Remove ${escapeHTML(name)}?</h3><p class="sub" style="margin-bottom:16px;">Past transactions involving them stay in your ledger, but their balance breakdown will disappear from Who Owes Who.</p>
+      <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn danger" id="confirmRemovePerson">Remove</button></div>`);
+    document.getElementById('confirmRemovePerson').onclick = ()=>{
+      state.people = state.people.filter(p=>p!==name); saveState(); closeGen(); renderAll(); toast('Person removed');
+    };
+  });
+  document.getElementById('categoryChips').innerHTML = state.categories.map(c=>{
+    const protectedCat = PROTECTED_CATEGORIES.includes(c);
+    return `<span class="chipTag">${escapeHTML(c)}${protectedCat?'':`<button data-cat="${escapeHTML(c)}" class="removeCategoryBtn">×</button>`}</span>`;
+  }).join('');
+  document.querySelectorAll('.removeCategoryBtn').forEach(b=> b.onclick = ()=>{
+    const cat = b.dataset.cat;
+    openGenModal(`<h3>Remove "${escapeHTML(cat)}" category?</h3><p class="sub" style="margin-bottom:16px;">Any budget set for this category will also be removed. Past transactions keep this category label.</p>
+      <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn danger" id="confirmRemoveCategory">Remove</button></div>`);
+    document.getElementById('confirmRemoveCategory').onclick = ()=>{
+      state.categories = state.categories.filter(c=>c!==cat); delete state.budgets[cat];
+      saveState(); closeGen(); renderAll(); toast('Category removed');
+    };
+  });
+}
+document.getElementById('addPersonBtn').onclick = ()=>{
+  const input = document.getElementById('newPersonInput');
+  const name = input.value.trim();
+  if(!name){ toast('Enter a name'); return; }
+  if(name.toLowerCase()==='me'){ toast('"Me" is already built in'); return; }
+  if(state.people.some(p=>p.toLowerCase()===name.toLowerCase())){ toast('Already added'); return; }
+  state.people.push(name); input.value=''; saveState(); renderAll(); toast(`${name} added`);
+};
+document.getElementById('addCategoryBtn').onclick = ()=>{
+  const input = document.getElementById('newCategoryInput');
+  const cat = input.value.trim();
+  if(!cat){ toast('Enter a category name'); return; }
+  if(state.categories.some(c=>c.toLowerCase()===cat.toLowerCase())){ toast('Already exists'); return; }
+  state.categories.push(cat); input.value=''; saveState(); renderAll(); toast(`${cat} added`);
+};
 
 /* ---------------- REPORTS ---------------- */
 document.getElementById('reportMonth').addEventListener('change', renderReports);
@@ -719,11 +859,10 @@ document.getElementById('emailReportBtn').onclick = ()=>{
   const {inflow, outflow} = cashInOut(m);
   const spend = categorySpend(m);
   const sortedCats = Object.entries(spend).sort((a,b)=>b[1]-a[1]);
-  const owed = netOwed();
+  const total = netOwedTotal();
   let body = `FamilyLedger Report — ${m}\n\nCash In: ${fmt(inflow)}\nCash Out: ${fmt(outflow)}\nNet: ${fmt(inflow-outflow)}\n\nCategory Breakdown:\n`;
   sortedCats.forEach(([cat,amt])=>{ body += `- ${cat}: ${fmt(amt)}\n`; });
-  body += `\nRemaining Balance: ${fmt(runningBalance())}\nSafe to Spend right now: ${fmt(safeToSpend())}\n`;
-  body += owed>0.004 ? `${state.partner||'Partner'} owes you: ${fmt(owed)}\n` : owed<-0.004 ? `You owe ${state.partner||'partner'}: ${fmt(-owed)}\n` : `Settled up with ${state.partner||'partner'}\n`;
+  body += `\nRemaining Balance: ${fmt(runningBalance())}\nSafe to Spend right now: ${fmt(safeToSpend())}\n\nNet Owed (All People): ${fmt(total)}\n`;
   const subject = encodeURIComponent(`FamilyLedger Report — ${m}`);
   const mailBody = encodeURIComponent(body);
   window.location.href = `mailto:?subject=${subject}&body=${mailBody}`;
@@ -732,13 +871,22 @@ document.getElementById('emailReportBtn').onclick = ()=>{
 /* ---------------- ADD TRANSACTION ---------------- */
 document.getElementById('fabAdd').onclick = ()=> openTxModal();
 document.getElementById('simEmailBtn').onclick = ()=> simulateEmail();
+function refreshTxSplitUI(){
+  document.getElementById('txSplitParticipants').innerHTML = splitParticipantRowsHTML('tx', {}, currentSplitType);
+  document.getElementById('txSplitPreview').textContent='';
+}
 function openTxModal(){
   document.getElementById('txAmount').value=''; document.getElementById('txMerchant').value='';
   document.getElementById('txNote').value='';
-  document.getElementById('txDate').value = todayISO(); document.getElementById('txCategory').value='Food';
+  document.getElementById('txDate').value = todayISO();
+  populateCategoryDropdown('txCategory', 'Food');
+  populatePaidByDropdown('txPaidBy', 'Me');
   document.getElementById('txPaidWithWrap').style.display='block'; document.getElementById('txCardPaidWrap').style.display='none';
-  document.getElementById('txPaidBy').value='Me'; document.getElementById('txShared').checked=false;
+  document.getElementById('txShared').checked=false;
   document.getElementById('splitBox').classList.remove('show');
+  currentSplitType = 'percent';
+  document.querySelectorAll('#splitBox .chip').forEach(c=>c.classList.toggle('active', c.dataset.split==='percent'));
+  refreshTxSplitUI();
   populatePaymentDropdowns();
   document.getElementById('txOverlay').classList.add('open');
 }
@@ -748,10 +896,14 @@ document.querySelectorAll('#splitBox .chip').forEach(chip=>{
   chip.onclick = ()=>{
     document.querySelectorAll('#splitBox .chip').forEach(c=>c.classList.remove('active'));
     chip.classList.add('active'); currentSplitType = chip.dataset.split;
-    document.getElementById('splitPercentFields').style.display = currentSplitType==='percent' ? 'flex':'none';
-    document.getElementById('splitExactFields').style.display = currentSplitType==='exact' ? 'flex':'none';
+    document.querySelectorAll('#txSplitParticipants input.txSplitValue').forEach(inp=>{ inp.placeholder = currentSplitType==='exact'?'₹':'%'; inp.value=''; });
+    updateSplitPreview('tx','txSplitParticipants','txAmount','txSplitPreview');
   };
 });
+wireSplitParticipantEvents('tx','txSplitParticipants','txAmount','txSplitPreview');
+document.getElementById('txSplitEvenlyBtn').onclick = ()=> evenSplit('tx','txSplitParticipants','txAmount','txSplitPreview');
+document.getElementById('txAmount').addEventListener('input', ()=> updateSplitPreview('tx','txSplitParticipants','txAmount','txSplitPreview'));
+
 document.getElementById('txSave').onclick = ()=>{
   const amount = parseFloat(document.getElementById('txAmount').value);
   const merchant = document.getElementById('txMerchant').value.trim();
@@ -760,20 +912,18 @@ document.getElementById('txSave').onclick = ()=>{
   const category = document.getElementById('txCategory').value;
   let split = null;
   if(isShared){
-    if(currentSplitType==='percent'){
-      const mePct = parseFloat(document.getElementById('splitMePct').value)||0;
-      const theirPct = parseFloat(document.getElementById('splitTheirPct').value)||0;
-      split = { mine: amount*mePct/100, theirs: amount*theirPct/100 };
-    } else { split = { mine: parseFloat(document.getElementById('splitMeExact').value)||0, theirs: parseFloat(document.getElementById('splitTheirExact').value)||0 }; }
+    const { type, shares } = getSplitShares('tx','txSplitParticipants','txAmount');
+    if(Object.keys(shares).length===0){ toast('Select at least one person to split with'); return; }
+    split = { type, shares };
   }
   const tx = { id: uid(), amount, merchant, note: document.getElementById('txNote').value.trim(),
     date: document.getElementById('txDate').value || todayISO(), loggedAt: new Date().toISOString(),
-    category, paidBy: document.getElementById('txPaidBy').value.trim()||'Me',
+    category, paidBy: document.getElementById('txPaidBy').value||'Me',
     paymentMethod: category==='Credit Card' ? 'bank' : (document.getElementById('txPaidWith').value||'bank'),
     cardPaid: category==='Credit Card' ? (document.getElementById('txCardPaid').value||null) : null,
-    isShared, split, status:'pending', source:'manual' };
+    isShared, split, status:'approved', source:'manual' };
   state.transactions.push(tx); saveState();
-  document.getElementById('txOverlay').classList.remove('open'); renderAll(); toast('Added to Pending Approval');
+  document.getElementById('txOverlay').classList.remove('open'); renderAll(); toast('Added to Ledger');
 };
 function simulateEmail(){
   const merchants = ['Big Bazaar','Amazon','Ola','Chai Point','More Supermarket','Indian Oil','Netflix','Reliance Trends'];
@@ -783,7 +933,7 @@ function simulateEmail(){
   state.transactions.push(tx); saveState(); renderAll(); toast(`Bank alert: ${fmt(amount)} at ${m} → added to Pending`);
 }
 
-/* ---------------- APPROVE MODAL ---------------- */
+/* ---------------- APPROVE / EDIT MODAL ---------------- */
 function openApprove(id){
   currentEditTx = id;
   const t = state.transactions.find(x=>x.id===id);
@@ -792,6 +942,8 @@ function openApprove(id){
   const body = document.getElementById('approveBody');
   const cardOpts = state.cards.map(c=>`<option value="${c.id}" ${t.paymentMethod===c.id?'selected':''}>${escapeHTML(c.name)}</option>`).join('');
   const cardPaidOpts = state.cards.map(c=>`<option value="${c.id}" ${t.cardPaid===c.id?'selected':''}>${escapeHTML(c.name)}</option>`).join('') || '<option value="">No cards added yet</option>';
+  const paidByOpts = participantList().map(p=>`<option ${p===t.paidBy?'selected':''}>${escapeHTML(p)}</option>`).join('');
+  const catOpts = state.categories.map(c=>`<option ${c===t.category?'selected':''}>${escapeHTML(c)}</option>`).join('');
   body.innerHTML = `
     <div class="row2">
       <div class="field"><label>Amount (₹)</label><input type="number" id="apAmount" value="${t.amount}" step="0.01"></div>
@@ -799,28 +951,42 @@ function openApprove(id){
     </div>
     <div class="field"><label>Merchant</label><input type="text" id="apMerchant" value="${escapeHTML(t.merchant)}"></div>
     <div class="field"><label>What was this for?</label><textarea id="apNote">${escapeHTML(t.note||'')}</textarea></div>
-    <div class="field"><label>Category</label><select id="apCategory">${CATS.map(c=>`<option ${c===t.category?'selected':''}>${c}</option>`).join('')}</select></div>
+    <div class="field"><label>Category</label><select id="apCategory">${catOpts}</select></div>
     <div class="field" id="apPaidWithWrap" style="display:${t.category==='Credit Card'?'none':'block'};"><label>Paid With</label><select id="apPaidWith"><option value="bank" ${(!t.paymentMethod||t.paymentMethod==='bank')?'selected':''}>Bank / Cash</option>${cardOpts}</select></div>
     <div class="field" id="apCardPaidWrap" style="display:${t.category==='Credit Card'?'block':'none'};"><label>Which card is this paying?</label><select id="apCardPaid">${cardPaidOpts}</select></div>
-    <div class="field"><label>Paid By</label><input type="text" id="apPaidBy" value="${escapeHTML(t.paidBy||'Me')}"></div>
+    <div class="field"><label>Paid By</label><select id="apPaidBy">${paidByOpts}</select></div>
     <div class="toggle"><input type="checkbox" id="apShared" ${t.isShared?'checked':''}><label style="margin:0;text-transform:none;font-size:.85rem;">Shared expense — split it</label></div>
     <div class="splitBox ${t.isShared?'show':''}" id="apSplitBox">
-      <div class="row2">
-        <div class="field"><label>My %</label><input type="number" id="apMePct" value="50"></div>
-        <div class="field"><label>Partner %</label><input type="number" id="apTheirPct" value="50"></div>
-      </div>
+      <div class="chipRow"><div class="chip ${(!t.split||t.split.type==='percent')?'active':''}" data-split="percent">Percentage Split</div><div class="chip ${t.split&&t.split.type==='exact'?'active':''}" data-split="exact">Exact Amounts</div></div>
+      <div id="apSplitParticipants"></div>
+      <div style="display:flex; gap:8px; align-items:center; margin-top:6px;"><button class="btn ghost small" type="button" id="apSplitEvenlyBtn">Split Evenly</button><div class="splitTotalPreview" id="apSplitPreview"></div></div>
     </div>
     <div class="modalActions"><button class="btn ghost" style="color:var(--rust);" id="apReject">Delete</button><button class="btn" id="apApprove">${isNew ? 'Approve' : 'Save Changes'}</button></div>`;
+
   document.getElementById('apCategory').addEventListener('change', (e)=>{
     const isCC = e.target.value === 'Credit Card';
     document.getElementById('apPaidWithWrap').style.display = isCC ? 'none' : 'block';
     document.getElementById('apCardPaidWrap').style.display = isCC ? 'block' : 'none';
   });
   document.getElementById('apShared').onchange = e=> document.getElementById('apSplitBox').classList.toggle('show', e.target.checked);
-  if(t.split){ document.getElementById('apMePct').value = t.split.mine && t.amount ? Math.round((t.split.mine/t.amount)*100) : 50; document.getElementById('apTheirPct').value = t.split.theirs && t.amount ? Math.round((t.split.theirs/t.amount)*100) : 50; }
+  const initialSplitType = t.split ? t.split.type : 'percent';
+  document.getElementById('apSplitParticipants').innerHTML = splitParticipantRowsHTML('ap', t.split ? t.split.shares : {}, initialSplitType);
+  document.querySelectorAll('#apSplitBox .chip').forEach(chip=>{
+    chip.onclick = ()=>{
+      document.querySelectorAll('#apSplitBox .chip').forEach(c=>c.classList.remove('active'));
+      chip.classList.add('active');
+      document.querySelectorAll('#apSplitParticipants input.apSplitValue').forEach(inp=>{ inp.placeholder = chip.dataset.split==='exact'?'₹':'%'; inp.value=''; });
+      updateSplitPreview('ap','apSplitParticipants','apAmount','apSplitPreview');
+    };
+  });
+  wireSplitParticipantEvents('ap','apSplitParticipants','apAmount','apSplitPreview');
+  document.getElementById('apSplitEvenlyBtn').onclick = ()=> evenSplit('ap','apSplitParticipants','apAmount','apSplitPreview');
+  document.getElementById('apAmount').addEventListener('input', ()=> updateSplitPreview('ap','apSplitParticipants','apAmount','apSplitPreview'));
+  if(t.isShared) updateSplitPreview('ap','apSplitParticipants','apAmount','apSplitPreview');
+
   document.getElementById('apReject').onclick = ()=>{
     const isSharedApproved = t.isShared && t.status==='approved' && t.split;
-    const warnLine = isSharedApproved ? `<p class="sub" style="margin-bottom:14px; color:var(--brass);">Heads up: this is a shared, already-approved transaction. Deleting it will shift your Who Owes Who balance by ${fmt(t.paidBy && t.paidBy.toLowerCase()==='me' ? t.split.theirs : t.split.mine)}. If you'd already settled up based on it, remove or adjust the matching settlement afterward (Who Owes Who tab).</p>` : '';
+    const warnLine = isSharedApproved ? `<p class="sub" style="margin-bottom:14px; color:var(--brass);">Heads up: this is a shared, already-approved transaction. Deleting it will change the balances of everyone it was split with. If you'd already settled up based on it, adjust or remove the matching settlement afterward (Who Owes Who tab).</p>` : '';
     openGenModal(`<h3>Delete this transaction?</h3>${warnLine}<p class="sub" style="margin-bottom:16px;">"${escapeHTML(t.merchant)}" — ${fmt(t.amount)}. This can't be undone.</p>
       <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn danger" id="confirmDelete">Delete</button></div>`);
     document.getElementById('confirmDelete').onclick = ()=>{
@@ -834,17 +1000,17 @@ function openApprove(id){
     t.merchant = document.getElementById('apMerchant').value.trim();
     t.note = document.getElementById('apNote').value.trim();
     t.category = document.getElementById('apCategory').value;
-    t.paidBy = document.getElementById('apPaidBy').value.trim();
+    t.paidBy = document.getElementById('apPaidBy').value;
     if(t.category==='Credit Card'){ t.paymentMethod='bank'; t.cardPaid = document.getElementById('apCardPaid').value || null; }
     else { t.paymentMethod = document.getElementById('apPaidWith').value || 'bank'; t.cardPaid = null; }
     t.isShared = document.getElementById('apShared').checked;
     if(t.isShared){
-      const mePct = parseFloat(document.getElementById('apMePct').value)||0;
-      const theirPct = parseFloat(document.getElementById('apTheirPct').value)||0;
-      t.split = { mine: t.amount*mePct/100, theirs: t.amount*theirPct/100 };
+      const { type, shares } = getSplitShares('ap','apSplitParticipants','apAmount');
+      if(Object.keys(shares).length===0){ toast('Select at least one person to split with'); return; }
+      t.split = { type, shares };
     } else { t.split = null; }
     t.status = 'approved';
-    saveState(); closeApprove(); renderAll(); toast('Approved & balance updated');
+    saveState(); closeApprove(); renderAll(); toast(isNew ? 'Approved & added to Ledger' : 'Changes saved');
   };
   document.getElementById('approveOverlay').classList.add('open');
 }
@@ -854,21 +1020,35 @@ document.getElementById('txOverlay').addEventListener('click', e=>{ if(e.target.
 
 /* ---------------- SETTLE UP ---------------- */
 document.getElementById('settleBtn').onclick = ()=>{
-  const owed = netOwed();
-  openGenModal(`<h3>Settle Up</h3><p class="sub" style="margin-bottom:14px;">Current net: ${fmt(Math.abs(owed))} ${owed>=0?(state.partner||'partner')+' owes you':'you owe '+(state.partner||'partner')}</p>
-    <div class="field"><label>Amount Settled</label><input type="number" id="settleAmt" value="${Math.abs(owed).toFixed(2)}" step="0.01"></div>
+  if(state.people.length===0){ toast('Add someone to split with first, in Settings'); return; }
+  const balances = personBalances();
+  const personOpts = state.people.map(p=>`<option value="${escapeHTML(p)}">${escapeHTML(p)} (${fmt(balances[p]||0)})</option>`).join('');
+  openGenModal(`<h3>Settle Up</h3>
+    <div class="field"><label>With</label><select id="settlePerson">${personOpts}</select></div>
+    <div class="field"><label>Amount Settled</label><input type="number" id="settleAmt" step="0.01"></div>
+    <p class="sub" id="settleHint" style="margin-bottom:10px;"></p>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="settleConfirm">Confirm</button></div>`);
+  const updateHint = ()=>{
+    const person = document.getElementById('settlePerson').value;
+    const bal = balances[person]||0;
+    document.getElementById('settleAmt').value = Math.abs(bal).toFixed(2);
+    document.getElementById('settleHint').textContent = bal>0.004 ? `${person} currently owes you ${fmt(bal)}.` : bal<-0.004 ? `You currently owe ${person} ${fmt(-bal)}.` : `You and ${person} are settled up.`;
+  };
+  document.getElementById('settlePerson').onchange = updateHint; updateHint();
   document.getElementById('settleConfirm').onclick = ()=>{
+    const person = document.getElementById('settlePerson').value;
     const amt = parseFloat(document.getElementById('settleAmt').value)||0;
-    state.settlements.push({ id: uid(), date: todayISO(), amount: amt });
+    const bal = balances[person]||0;
+    const delta = bal >= 0 ? -amt : amt; // always moves the balance toward zero, whichever direction the debt runs
+    state.settlements.push({ id: uid(), date: todayISO(), person, amount: amt, delta });
     saveState(); closeGen(); renderAll(); toast('Settlement recorded');
   };
 };
 
 /* ---------------- BUDGETS ---------------- */
 document.getElementById('editBudgetsBtn').onclick = ()=>{
-  const fields = CATS.filter(c=>c!=='Income').map(c=>
-    `<div class="field"><label>${c}</label><input type="number" class="budgetInput" data-cat="${c}" value="${state.budgets[c]||''}" placeholder="0.00"></div>`).join('');
+  const fields = state.categories.filter(c=>c!=='Income').map(c=>
+    `<div class="field"><label>${escapeHTML(c)}</label><input type="number" class="budgetInput" data-cat="${escapeHTML(c)}" value="${state.budgets[c]||''}" placeholder="0.00"></div>`).join('');
   openGenModal(`<h3>Edit Category Budgets</h3>${fields}<div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="budgetSave">Save</button></div>`);
   document.getElementById('budgetSave').onclick = ()=>{
     document.querySelectorAll('.budgetInput').forEach(inp=>{ const v = parseFloat(inp.value); if(v>0) state.budgets[inp.dataset.cat] = v; else delete state.budgets[inp.dataset.cat]; });
@@ -901,9 +1081,7 @@ function openEditRecurring(id){
     <div class="row2"><div class="field"><label>Amount (₹)</label><input type="number" id="rAmount2" value="${r.amount}" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate2" value="${r.dueDate}"></div></div>
     <p class="sub" style="margin-bottom:14px;">EMI finished, or this bill ended? Just delete it below — nothing else needs to change.</p>
     <div class="modalActions"><button class="btn ghost" style="color:var(--rust);" id="rDelete2">Delete / End</button><button class="btn" id="rSave2">Save</button></div>`);
-  document.getElementById('rDelete2').onclick = ()=>{
-    state.recurring = state.recurring.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Recurring bill removed');
-  };
+  document.getElementById('rDelete2').onclick = ()=>{ state.recurring = state.recurring.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Recurring bill removed'); };
   document.getElementById('rSave2').onclick = ()=>{
     r.name = document.getElementById('rName2').value.trim()||r.name;
     r.amount = parseFloat(document.getElementById('rAmount2').value)||r.amount;
@@ -916,7 +1094,6 @@ document.getElementById('clearRecurringBtn').onclick = ()=>{
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn danger" id="confirmClear">Clear All</button></div>`);
   document.getElementById('confirmClear').onclick = ()=>{ state.recurring=[]; saveState(); closeGen(); renderAll(); toast('Recurring bills cleared'); };
 };
-
 document.getElementById('addCardBtn').onclick = ()=>{
   openGenModal(`<h3>Add Credit Card</h3>
     <div class="field"><label>Card Name</label><input type="text" id="cName" placeholder="e.g. HDFC Pixel Play"></div>
@@ -938,9 +1115,7 @@ function openEditCard(id){
     <div class="row2"><div class="field"><label>Bill Generation Date</label><input type="date" id="cBillDate2" value="${c.billDate||''}"></div><div class="field"><label>Payment Due Date</label><input type="date" id="cDueDate2" value="${c.dueDate||''}"></div></div>
     <p class="sub" style="margin-bottom:14px;">Current computed balance (starting balance + card spend − bill payments): <strong>${fmt(cardBalance(c))}</strong></p>
     <div class="modalActions"><button class="btn ghost" style="color:var(--rust);" id="cDelete2">Delete Card</button><button class="btn" id="cSave2">Save</button></div>`);
-  document.getElementById('cDelete2').onclick = ()=>{
-    state.cards = state.cards.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Card removed');
-  };
+  document.getElementById('cDelete2').onclick = ()=>{ state.cards = state.cards.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Card removed'); };
   document.getElementById('cSave2').onclick = ()=>{
     c.name = document.getElementById('cName2').value.trim()||c.name;
     c.openingBalance = parseFloat(document.getElementById('cBalance2').value)||0;
@@ -957,7 +1132,6 @@ document.getElementById('clearCardsBtn').onclick = ()=>{
 
 /* ---------------- SETTINGS ---------------- */
 document.getElementById('saveSettingsBtn').onclick = ()=>{
-  state.partner = document.getElementById('partnerName').value.trim()||'Partner';
   state.sheetSyncUrl = document.getElementById('sheetUrlInput').value.trim();
   saveState(); renderAll(); toast('Settings saved');
 };
@@ -1024,11 +1198,11 @@ document.getElementById('genOverlay').addEventListener('click', e=>{ if(e.target
 
 /* ---------------- CSV EXPORT ---------------- */
 document.getElementById('exportBtn').onclick = ()=>{
-  const rows = [['Date','Time','Merchant','Note','Category','Amount','PaidBy','PaymentMethod','Status','Shared','MyShare','PartnerShare']];
+  const rows = [['Date','Time','Merchant','Note','Category','Amount','PaidBy','PaymentMethod','Status','Shared','Shares(JSON)']];
   state.transactions.forEach(t=>{
     const time = t.loggedAt ? new Date(t.loggedAt).toLocaleTimeString('en-IN') : '';
     const pm = t.paymentMethod==='bank'||!t.paymentMethod ? 'Bank/Cash' : (state.cards.find(c=>c.id===t.paymentMethod)?.name || 'Card');
-    rows.push([t.date, time, t.merchant, t.note||'', t.category, t.amount, t.paidBy, pm, t.status, t.isShared?'yes':'no', t.split?t.split.mine.toFixed(2):'', t.split?t.split.theirs.toFixed(2):'']);
+    rows.push([t.date, time, t.merchant, t.note||'', t.category, t.amount, t.paidBy, pm, t.status, t.isShared?'yes':'no', t.split?JSON.stringify(t.split.shares):'']);
   });
   const csv = rows.map(r=> r.map(v=> `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], {type:'text/csv'});
