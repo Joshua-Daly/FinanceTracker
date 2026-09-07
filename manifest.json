@@ -1,6 +1,6 @@
 {
-  "name": "FamilyLedger",
-  "short_name": "FamilyLedger",
+  "name": "Tally Up",
+  "short_name": "Tally Up",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
