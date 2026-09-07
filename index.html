@@ -581,9 +581,10 @@ function splitParticipantRowsHTML(prefix, existingShares, splitType){
   return participantList().map(name=>{
     const checked = existingShares[name] !== undefined;
     const val = checked ? existingShares[name] : '';
+    const manualAttr = (checked && splitType==='exact') ? 'data-manual="true"' : '';
     return `<div class="splitPersonRow">
       <label><input type="checkbox" class="${prefix}SplitInclude" data-person="${escapeHTML(name)}" ${checked?'checked':''}><span>${escapeHTML(name)}</span></label>
-      <input type="number" class="${prefix}SplitValue" data-person="${escapeHTML(name)}" step="0.01" placeholder="${splitType==='exact'?'₹':'%'}" style="display:${checked?'inline-block':'none'};" value="${val}">
+      <input type="number" class="${prefix}SplitValue" data-person="${escapeHTML(name)}" ${manualAttr} step="0.01" placeholder="${splitType==='exact'?'₹':'%'}" style="display:${checked?'inline-block':'none'};" value="${val}">
     </div>`;
   }).join('');
 }
@@ -592,11 +593,45 @@ function wireSplitParticipantEvents(prefix, containerId, amountInputId, previewI
   container.addEventListener('change', (e)=>{
     if(e.target.classList.contains(prefix+'SplitInclude')){
       const valInput = container.querySelector(`.${prefix}SplitValue[data-person="${CSS.escape(e.target.dataset.person)}"]`);
-      if(valInput){ valInput.style.display = e.target.checked ? 'inline-block' : 'none'; if(!e.target.checked) valInput.value=''; }
+      if(valInput){
+        valInput.style.display = e.target.checked ? 'inline-block' : 'none';
+        if(!e.target.checked){ valInput.value=''; delete valInput.dataset.manual; }
+      }
+      redistributeRemainder(prefix, containerId, amountInputId);
       updateSplitPreview(prefix, containerId, amountInputId, previewId);
     }
   });
-  container.addEventListener('input', (e)=>{ if(e.target.classList.contains(prefix+'SplitValue')) updateSplitPreview(prefix, containerId, amountInputId, previewId); });
+  container.addEventListener('input', (e)=>{
+    if(e.target.classList.contains(prefix+'SplitValue')){
+      e.target.dataset.manual = 'true'; // this one was typed by the person, not auto-filled
+      redistributeRemainder(prefix, containerId, amountInputId);
+      updateSplitPreview(prefix, containerId, amountInputId, previewId);
+    }
+  });
+}
+// In Exact Amounts mode: whatever the person has manually typed into specific
+// fields is left alone, and the remaining amount (transaction total minus
+// what's been manually entered) is divided evenly across the OTHER checked
+// participants automatically. Typing a new value anywhere recalculates this
+// on the fly. Has no effect in Percentage mode.
+function redistributeRemainder(prefix, containerId, amountInputId){
+  const type = document.querySelector(`#${prefix==='tx'?'splitBox':'apSplitBox'} .chip.active`)?.dataset.split || 'percent';
+  if(type !== 'exact') return;
+  const container = document.getElementById(containerId);
+  const amount = parseFloat(document.getElementById(amountInputId).value)||0;
+  const checked = [...container.querySelectorAll(`.${prefix}SplitInclude:checked`)];
+  if(checked.length===0) return;
+  let manualSum = 0; const autoInputs = [];
+  checked.forEach(cb=>{
+    const valInput = container.querySelector(`.${prefix}SplitValue[data-person="${CSS.escape(cb.dataset.person)}"]`);
+    if(!valInput) return;
+    if(valInput.dataset.manual==='true'){ manualSum += parseFloat(valInput.value)||0; }
+    else{ autoInputs.push(valInput); }
+  });
+  if(autoInputs.length===0) return; // everything's been manually typed, nothing left to auto-fill
+  const remainder = Math.max(0, amount - manualSum);
+  const share = remainder / autoInputs.length;
+  autoInputs.forEach(inp=> inp.value = share.toFixed(2));
 }
 function updateSplitPreview(prefix, containerId, amountInputId, previewId){
   const container = document.getElementById(containerId);
@@ -622,7 +657,7 @@ function evenSplit(prefix, containerId, amountInputId, previewId){
   const n = checked.length || 1;
   checked.forEach(cb=>{
     const valInput = container.querySelector(`.${prefix}SplitValue[data-person="${CSS.escape(cb.dataset.person)}"]`);
-    if(valInput){ valInput.style.display='inline-block'; valInput.value = type==='percent' ? (100/n).toFixed(2) : (amount/n).toFixed(2); }
+    if(valInput){ valInput.style.display='inline-block'; valInput.value = type==='percent' ? (100/n).toFixed(2) : (amount/n).toFixed(2); delete valInput.dataset.manual; }
   });
   updateSplitPreview(prefix, containerId, amountInputId, previewId);
 }
@@ -919,7 +954,7 @@ document.querySelectorAll('#splitBox .chip').forEach(chip=>{
   chip.onclick = ()=>{
     document.querySelectorAll('#splitBox .chip').forEach(c=>c.classList.remove('active'));
     chip.classList.add('active'); currentSplitType = chip.dataset.split;
-    document.querySelectorAll('#txSplitParticipants input.txSplitValue').forEach(inp=>{ inp.placeholder = currentSplitType==='exact'?'₹':'%'; inp.value=''; });
+    document.querySelectorAll('#txSplitParticipants input.txSplitValue').forEach(inp=>{ inp.placeholder = currentSplitType==='exact'?'₹':'%'; inp.value=''; delete inp.dataset.manual; });
     updateSplitPreview('tx','txSplitParticipants','txAmount','txSplitPreview');
   };
 });
@@ -998,7 +1033,7 @@ function openApprove(id){
     chip.onclick = ()=>{
       document.querySelectorAll('#apSplitBox .chip').forEach(c=>c.classList.remove('active'));
       chip.classList.add('active');
-      document.querySelectorAll('#apSplitParticipants input.apSplitValue').forEach(inp=>{ inp.placeholder = chip.dataset.split==='exact'?'₹':'%'; inp.value=''; });
+      document.querySelectorAll('#apSplitParticipants input.apSplitValue').forEach(inp=>{ inp.placeholder = chip.dataset.split==='exact'?'₹':'%'; inp.value=''; delete inp.dataset.manual; });
       updateSplitPreview('ap','apSplitParticipants','apAmount','apSplitPreview');
     };
   });
