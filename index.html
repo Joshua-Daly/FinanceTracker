@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1A1613">
 <link rel="apple-touch-icon" href="icon-512.png">
-<title>FamilyLedger</title>
+<title>Tally Up</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -28,7 +28,6 @@ h1,h2,h3,.display{ font-family:'Fraunces', Georgia, serif; font-weight:600; lett
 .mono, .amount{ font-family:'IBM Plex Mono','Courier New',monospace; font-variant-numeric: tabular-nums; }
 
 #lockScreen{ position:fixed; inset:0; background:var(--paper); z-index:999; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; }
-.logoMark{ width:56px; height:56px; border-radius:50%; background:radial-gradient(circle at 30% 30%, #E3BE3E, var(--brass-dim)); display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:700; font-size:1.3rem; color:#1A1613; box-shadow:var(--shadow); flex-shrink:0; }
 #lockScreen h1{ font-size:1.9rem; color:var(--brass); }
 #lockScreen p{ color:var(--ink-dim); font-size:.85rem; }
 .pinDots{ display:flex; gap:14px; }
@@ -153,8 +152,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
 <body>
 
 <div id="lockScreen">
-  <div class="logoMark">FL</div>
-  <h1 class="display">FamilyLedger</h1>
+  <h1 class="display">Tally Up</h1>
   <p id="lockPrompt">Enter your PIN</p>
   <div class="pinDots" id="pinDots"></div>
   <div class="numpad" id="numpad"></div>
@@ -165,9 +163,8 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
 <div id="app">
   <header class="top">
     <div class="brand">
-      <div class="logoMark" style="width:40px;height:40px;font-size:.95rem;">FL</div>
       <div class="brandtext">
-        <h1 class="display">FamilyLedger</h1>
+        <h1 class="display">Tally Up</h1>
         <span id="partnerTag">shared with —</span>
       </div>
     </div>
@@ -391,22 +388,35 @@ function participantList(){ return ['Me', ...state.people]; }
 
 /* ---------------- STORAGE ---------------- */
 function loadState(){
-  try{ const raw = localStorage.getItem('familyledger-data'); if(raw) Object.assign(state, JSON.parse(raw)); }catch(e){ console.error('load failed', e); }
-  try{ const p = localStorage.getItem('familyledger-pin'); if(p) state.pin = p; }catch(e){ state.pin = null; }
+  try{
+    let raw = localStorage.getItem('tallyup-data');
+    if(!raw){
+      // Migrating from the old FamilyLedger name -- read the old key once,
+      // and future saves will write under the new key. Nothing is lost.
+      const legacy = localStorage.getItem('familyledger-data');
+      if(legacy){ raw = legacy; }
+    }
+    if(raw) Object.assign(state, JSON.parse(raw));
+  }catch(e){ console.error('load failed', e); }
+  try{
+    let p = localStorage.getItem('tallyup-pin');
+    if(!p) p = localStorage.getItem('familyledger-pin');
+    if(p) state.pin = p;
+  }catch(e){ state.pin = null; }
   if(!state.balanceAsOf) state.balanceAsOf = todayISO();
   if(!state.categories || state.categories.length===0) state.categories = [...DEFAULT_CATEGORIES];
   if(!state.people || state.people.length===0){ state.people = state.partner ? [state.partner] : ['Sister']; }
 }
 function saveState(){
   try{
-    localStorage.setItem('familyledger-data', JSON.stringify({
+    localStorage.setItem('tallyup-data', JSON.stringify({
       transactions: state.transactions, recurring: state.recurring, cards: state.cards,
       budgets: state.budgets, settlements: state.settlements, balance: state.balance, balanceAsOf: state.balanceAsOf,
       people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl
     }));
   }catch(e){ console.error('save failed', e); toast('Could not save to this browser'); }
 }
-function savePin(pin){ state.pin = pin; try{ localStorage.setItem('familyledger-pin', pin); }catch(e){ console.error(e); } }
+function savePin(pin){ state.pin = pin; try{ localStorage.setItem('tallyup-pin', pin); }catch(e){ console.error(e); } }
 
 /* ---------------- PIN LOCK ---------------- */
 let pinBuffer = '';
@@ -485,19 +495,32 @@ function cashInOut(monthStr){
   approvedTx().filter(t=>monthKey(t.date)===m).forEach(t=>{ if(t.category==='Income') inflow += t.amount; else outflow += t.amount; });
   return {inflow, outflow};
 }
+// Running balance reflects cash actually moving through YOUR bank account.
+// A transaction only affects it if paidBy is "Me" -- if someone else paid
+// (even for a shared expense split with you), no money left your account
+// yet, so it shouldn't move your balance; that debt lives in Who Owes Who
+// instead, and only actually hits your balance when you settle up.
 function runningBalance(){
   let bal = Number(state.balance)||0;
   const baseline = state.balanceAsOf || '1970-01-01';
   approvedTx().forEach(t=>{
     if(t.date < baseline) return;
-    if(t.paymentMethod && t.paymentMethod !== 'bank') return;
+    if((t.paidBy||'Me').toLowerCase() !== 'me') return; // someone else's money, not yours
+    if(t.paymentMethod && t.paymentMethod !== 'bank') return; // charged to a card, not paid from bank yet
     if(t.category==='Income') bal += t.amount; else bal -= t.amount;
+  });
+  state.settlements.forEach(s=>{
+    if(s.date && s.date < baseline) return;
+    bal += -s.delta; // mirror of the debt-balance delta: paying down what you owe leaves your account, being paid back enters it
   });
   return bal;
 }
+// A card's outstanding balance, same logic: only charges YOU made ("Me")
+// affect a card that's registered as yours.
 function cardBalance(card){
   let bal = Number(card.openingBalance)||0;
   approvedTx().forEach(t=>{
+    if((t.paidBy||'Me').toLowerCase() !== 'me') return;
     if(t.paymentMethod === card.id) bal += t.amount;
     if(t.category==='Credit Card' && t.cardPaid === card.id) bal -= t.amount;
   });
@@ -860,10 +883,10 @@ document.getElementById('emailReportBtn').onclick = ()=>{
   const spend = categorySpend(m);
   const sortedCats = Object.entries(spend).sort((a,b)=>b[1]-a[1]);
   const total = netOwedTotal();
-  let body = `FamilyLedger Report — ${m}\n\nCash In: ${fmt(inflow)}\nCash Out: ${fmt(outflow)}\nNet: ${fmt(inflow-outflow)}\n\nCategory Breakdown:\n`;
+  let body = `Tally Up Report — ${m}\n\nCash In: ${fmt(inflow)}\nCash Out: ${fmt(outflow)}\nNet: ${fmt(inflow-outflow)}\n\nCategory Breakdown:\n`;
   sortedCats.forEach(([cat,amt])=>{ body += `- ${cat}: ${fmt(amt)}\n`; });
   body += `\nRemaining Balance: ${fmt(runningBalance())}\nSafe to Spend right now: ${fmt(safeToSpend())}\n\nNet Owed (All People): ${fmt(total)}\n`;
-  const subject = encodeURIComponent(`FamilyLedger Report — ${m}`);
+  const subject = encodeURIComponent(`Tally Up Report — ${m}`);
   const mailBody = encodeURIComponent(body);
   window.location.href = `mailto:?subject=${subject}&body=${mailBody}`;
 };
@@ -1080,7 +1103,7 @@ function openEditRecurring(id){
     <div class="field"><label>Name</label><input type="text" id="rName2" value="${escapeHTML(r.name)}"></div>
     <div class="row2"><div class="field"><label>Amount (₹)</label><input type="number" id="rAmount2" value="${r.amount}" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate2" value="${r.dueDate}"></div></div>
     <p class="sub" style="margin-bottom:14px;">EMI finished, or this bill ended? Just delete it below — nothing else needs to change.</p>
-    <div class="modalActions"><button class="btn ghost" style="color:var(--rust);" id="rDelete2">Delete / End</button><button class="btn" id="rSave2">Save</button></div>`);
+    <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn ghost" style="color:var(--rust);" id="rDelete2">Delete / End</button><button class="btn" id="rSave2">Save</button></div>`);
   document.getElementById('rDelete2').onclick = ()=>{ state.recurring = state.recurring.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Recurring bill removed'); };
   document.getElementById('rSave2').onclick = ()=>{
     r.name = document.getElementById('rName2').value.trim()||r.name;
@@ -1114,7 +1137,7 @@ function openEditCard(id){
     <div class="field"><label>Starting Balance Owed (₹)</label><input type="number" id="cBalance2" value="${c.openingBalance}" step="0.01"></div>
     <div class="row2"><div class="field"><label>Bill Generation Date</label><input type="date" id="cBillDate2" value="${c.billDate||''}"></div><div class="field"><label>Payment Due Date</label><input type="date" id="cDueDate2" value="${c.dueDate||''}"></div></div>
     <p class="sub" style="margin-bottom:14px;">Current computed balance (starting balance + card spend − bill payments): <strong>${fmt(cardBalance(c))}</strong></p>
-    <div class="modalActions"><button class="btn ghost" style="color:var(--rust);" id="cDelete2">Delete Card</button><button class="btn" id="cSave2">Save</button></div>`);
+    <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn ghost" style="color:var(--rust);" id="cDelete2">Delete Card</button><button class="btn" id="cSave2">Save</button></div>`);
   document.getElementById('cDelete2').onclick = ()=>{ state.cards = state.cards.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Card removed'); };
   document.getElementById('cSave2').onclick = ()=>{
     c.name = document.getElementById('cName2').value.trim()||c.name;
@@ -1207,7 +1230,7 @@ document.getElementById('exportBtn').onclick = ()=>{
   const csv = rows.map(r=> r.map(v=> `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], {type:'text/csv'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href=url; a.download = `familyledger_${todayISO()}.csv`; a.click();
+  const a = document.createElement('a'); a.href=url; a.download = `tallyup_${todayISO()}.csv`; a.click();
   URL.revokeObjectURL(url); toast('CSV downloaded');
 };
 
