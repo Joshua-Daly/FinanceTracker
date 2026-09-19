@@ -247,7 +247,9 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
         </div>
         <div class="card"><div class="label">By Person</div><div id="peopleBalances"></div></div>
       </div>
-      <div class="section-title"><h2>Split Transactions</h2></div>
+      <div class="section-title"><h2>Split Transactions</h2>
+        <select id="owedPersonFilter" class="mono" style="background:var(--paper-raised); border:1px solid var(--paper-line); color:var(--ink); border-radius:8px; padding:7px 10px; font-size:.8rem;"><option value="all">All People</option></select>
+      </div>
       <div id="splitList" style="max-height:320px; overflow-y:auto;"></div>
       <div class="section-title"><h2>Settlement History</h2><span class="sub" style="color:var(--ink-faint);">tap an entry to remove it</span></div>
       <div id="settleHistory"></div>
@@ -799,17 +801,32 @@ function renderOwed(){
     return `<div class="personRow"><span class="name">${escapeHTML(p)}</span><span class="sub" style="margin:0 8px;">${label}</span><span class="amt ${cls}">${fmt(Math.abs(bal))}</span></div>`;
   }).join('') : emptyHTML('No people added yet — add some in Settings');
 
-  const splits = approvedTx().filter(t=>t.isShared && t.split).sort((a,b)=>b.date.localeCompare(a.date));
-  document.getElementById('splitList').innerHTML = splits.length ? splits.map(t=>{
-    const shareText = Object.entries(t.split.shares).map(([p,amt])=>`${escapeHTML(p)}: ${fmt(amt)}`).join(' · ');
-    return `<div class="ledgerRow"><div class="info"><div class="merchant">${escapeHTML(t.merchant)}</div><div class="who">${t.date} · paid by ${escapeHTML(t.paidBy)}</div><div class="note">${shareText}</div></div></div>`;
-  }).join('') : emptyHTML('No shared expenses yet');
+  populateOwedFilter();
+  renderSplitList();
 
   document.getElementById('settleHistory').innerHTML = state.settlements.length ?
     state.settlements.slice().reverse().map(s=>`<div class="ledgerRow" data-sid="${s.id}"><div class="info"><div class="merchant">Settled with ${escapeHTML(s.person)}</div><div class="who">${s.date}</div></div><div class="leader"></div><span class="amt">${fmt(s.amount)}</span></div>`).join('')
     : emptyHTML('No settlements recorded');
   bindSettlementClicks();
 }
+function populateOwedFilter(){
+  const sel = document.getElementById('owedPersonFilter');
+  const prev = sel.value || 'all';
+  sel.innerHTML = '<option value="all">All People</option>' + state.people.map(p=>`<option value="${escapeHTML(p)}">${escapeHTML(p)}</option>`).join('');
+  if([...sel.options].some(o=>o.value===prev)) sel.value = prev;
+}
+function renderSplitList(){
+  const filterPerson = document.getElementById('owedPersonFilter').value || 'all';
+  let splits = approvedTx().filter(t=>t.isShared && t.split).sort((a,b)=>b.date.localeCompare(a.date));
+  if(filterPerson !== 'all'){
+    splits = splits.filter(t=> t.paidBy===filterPerson || (t.split.shares && t.split.shares[filterPerson]!==undefined));
+  }
+  document.getElementById('splitList').innerHTML = splits.length ? splits.map(t=>{
+    const shareText = Object.entries(t.split.shares).map(([p,amt])=>`${escapeHTML(p)}: ${fmt(amt)}`).join(' · ');
+    return `<div class="ledgerRow"><div class="info"><div class="merchant">${escapeHTML(t.merchant)}</div><div class="who">${t.date} · paid by ${escapeHTML(t.paidBy)}</div><div class="note">${shareText}</div></div></div>`;
+  }).join('') : emptyHTML(filterPerson==='all' ? 'No shared expenses yet' : `No shared expenses involving ${escapeHTML(filterPerson)}`);
+}
+document.getElementById('owedPersonFilter').addEventListener('change', renderSplitList);
 function bindSettlementClicks(){
   document.querySelectorAll('#settleHistory .ledgerRow').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -833,16 +850,18 @@ function renderBudgets(){
 }
 function renderRecurring(){
   document.getElementById('recurringList').innerHTML = state.recurring.length ? state.recurring.map(r=>
-    `<div class="ledgerRow" data-rid="${r.id}"><div class="info"><div class="merchant">${escapeHTML(r.name)}</div><div class="who">due ${r.dueDate}</div></div><div class="leader"></div><span class="amt">${fmt(Number(r.amount))}</span></div>`
+    `<div class="ledgerRow" data-rid="${r.id}"><div class="info"><div class="merchant">${escapeHTML(r.name)}</div><div class="who">due ${r.dueDate}</div></div><div class="leader"></div><button class="btn ghost small quickBtn" data-rid="${r.id}" data-action="markpaid">Mark Paid</button><span class="amt">${fmt(Number(r.amount))}</span></div>`
   ).join('') : emptyHTML('No recurring bills yet');
   document.querySelectorAll('#recurringList .ledgerRow').forEach(el=> el.addEventListener('click', ()=> openEditRecurring(el.dataset.rid)));
+  document.querySelectorAll('#recurringList .quickBtn').forEach(btn=> btn.addEventListener('click', (e)=>{ e.stopPropagation(); openMarkRecurringPaid(btn.dataset.rid); }));
 
   document.getElementById('cardList').innerHTML = state.cards.length ? state.cards.map(c=>{
     const bal = cardBalance(c);
     const dates = [c.billDate ? 'bills '+c.billDate : null, c.dueDate ? 'due '+c.dueDate : null].filter(Boolean).join(' · ');
-    return `<div class="ledgerRow" data-cid="${c.id}"><div class="info"><div class="merchant">${escapeHTML(c.name)}</div><div class="who">${dates||'no dates set'}</div></div><div class="leader"></div><span class="amt negative">${fmt(bal)}</span></div>`;
+    return `<div class="ledgerRow" data-cid="${c.id}"><div class="info"><div class="merchant">${escapeHTML(c.name)}</div><div class="who">${dates||'no dates set'}</div></div><div class="leader"></div><button class="btn ghost small quickBtn" data-cid="${c.id}" data-action="pay">Pay</button><span class="amt negative">${fmt(bal)}</span></div>`;
   }).join('') : emptyHTML('No credit cards tracked yet');
   document.querySelectorAll('#cardList .ledgerRow').forEach(el=> el.addEventListener('click', ()=> openEditCard(el.dataset.cid)));
+  document.querySelectorAll('#cardList .quickBtn').forEach(btn=> btn.addEventListener('click', (e)=>{ e.stopPropagation(); openRecordCardPayment(btn.dataset.cid); }));
 }
 function renderSettingsChips(){
   document.getElementById('peopleChips').innerHTML = state.people.map(p=>
@@ -1121,30 +1140,69 @@ document.getElementById('clearBudgetsBtn').onclick = ()=>{
 
 /* ---------------- RECURRING / CARDS ---------------- */
 document.getElementById('addRecurringBtn').onclick = ()=>{
+  const catOpts = state.categories.map(c=>`<option ${c==='Misc'?'selected':''}>${escapeHTML(c)}</option>`).join('');
   openGenModal(`<h3>Add Recurring Bill</h3>
     <div class="field"><label>Name</label><input type="text" id="rName" placeholder="Rent, Netflix, Car EMI..."></div>
     <div class="row2"><div class="field"><label>Amount (₹)</label><input type="number" id="rAmount" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate" value="${todayISO()}"></div></div>
+    <div class="field"><label>Category (used when you mark it paid)</label><select id="rCategory">${catOpts}</select></div>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="rSave">Add</button></div>`);
   document.getElementById('rSave').onclick = ()=>{
     const name = document.getElementById('rName').value.trim(); const amount = parseFloat(document.getElementById('rAmount').value);
     if(!name||!amount){ toast('Fill in name and amount'); return; }
-    state.recurring.push({ id: uid(), name, amount, dueDate: document.getElementById('rDate').value });
+    state.recurring.push({ id: uid(), name, amount, dueDate: document.getElementById('rDate').value, category: document.getElementById('rCategory').value });
     saveState(); closeGen(); renderAll(); toast('Recurring bill added');
   };
 };
 function openEditRecurring(id){
   const r = state.recurring.find(x=>x.id===id); if(!r) return;
+  const catOpts = state.categories.map(c=>`<option ${c===(r.category||'Misc')?'selected':''}>${escapeHTML(c)}</option>`).join('');
   openGenModal(`<h3>Edit Recurring Bill</h3>
     <div class="field"><label>Name</label><input type="text" id="rName2" value="${escapeHTML(r.name)}"></div>
     <div class="row2"><div class="field"><label>Amount (₹)</label><input type="number" id="rAmount2" value="${r.amount}" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate2" value="${r.dueDate}"></div></div>
+    <div class="field"><label>Category (used when you mark it paid)</label><select id="rCategory2">${catOpts}</select></div>
+    <button class="btn ghost small" id="rMarkPaid2" style="margin-bottom:14px;">Mark This Payment Done</button>
     <p class="sub" style="margin-bottom:14px;">EMI finished, or this bill ended? Just delete it below — nothing else needs to change.</p>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn ghost" style="color:var(--rust);" id="rDelete2">Delete / End</button><button class="btn" id="rSave2">Save</button></div>`);
+  document.getElementById('rMarkPaid2').onclick = ()=>{ closeGen(); openMarkRecurringPaid(id); };
   document.getElementById('rDelete2').onclick = ()=>{ state.recurring = state.recurring.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Recurring bill removed'); };
   document.getElementById('rSave2').onclick = ()=>{
     r.name = document.getElementById('rName2').value.trim()||r.name;
     r.amount = parseFloat(document.getElementById('rAmount2').value)||r.amount;
     r.dueDate = document.getElementById('rDate2').value||r.dueDate;
+    r.category = document.getElementById('rCategory2').value;
     saveState(); closeGen(); renderAll(); toast('Recurring bill updated');
+  };
+}
+// Adds calendar months safely -- e.g. 31 Jan + 1 month lands on 28/29 Feb
+// (the last real day of that month) instead of overflowing into March,
+// which is what naive Date arithmetic would otherwise do.
+function addOneMonth(dateStr){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  let newY = y, newM = m+1;
+  if(newM>12){ newM=1; newY++; }
+  const daysInNewMonth = new Date(newY, newM, 0).getDate();
+  const newD = Math.min(d, daysInNewMonth);
+  return `${newY}-${String(newM).padStart(2,'0')}-${String(newD).padStart(2,'0')}`;
+}
+function openMarkRecurringPaid(id){
+  const r = state.recurring.find(x=>x.id===id); if(!r) return;
+  const nextDate = addOneMonth(r.dueDate);
+  openGenModal(`<h3>Mark ${escapeHTML(r.name)} as Paid</h3>
+    <p class="sub" style="margin-bottom:14px;">This logs the payment in your Ledger and moves the due date forward to <strong>${nextDate}</strong>.</p>
+    <div class="row2">
+      <div class="field"><label>Amount Paid (₹)</label><input type="number" id="mpAmount" value="${r.amount}" step="0.01"></div>
+      <div class="field"><label>Payment Date</label><input type="date" id="mpDate" value="${r.dueDate}"></div>
+    </div>
+    <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="mpConfirm">Mark Paid</button></div>`);
+  document.getElementById('mpConfirm').onclick = ()=>{
+    const amount = parseFloat(document.getElementById('mpAmount').value);
+    if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
+    state.transactions.push({ id: uid(), amount, merchant: r.name, note: 'Recurring bill payment',
+      date: document.getElementById('mpDate').value||r.dueDate, loggedAt: new Date().toISOString(),
+      category: r.category||'Misc', paidBy:'Me', paymentMethod:'bank', cardPaid:null,
+      isShared:false, split:null, status:'approved', source:'manual' });
+    r.dueDate = nextDate;
+    saveState(); closeGen(); renderAll(); toast(`Marked paid — next due ${nextDate}`);
   };
 }
 document.getElementById('clearRecurringBtn').onclick = ()=>{
@@ -1165,6 +1223,26 @@ document.getElementById('addCardBtn').onclick = ()=>{
     saveState(); closeGen(); renderAll(); toast('Card added');
   };
 };
+function openRecordCardPayment(cardId){
+  const c = state.cards.find(x=>x.id===cardId); if(!c) return;
+  const bal = cardBalance(c);
+  openGenModal(`<h3>Record ${escapeHTML(c.name)} Bill Payment</h3>
+    <p class="sub" style="margin-bottom:14px;">This logs a Credit Card transaction in your Ledger and reduces this card's balance by the amount paid.</p>
+    <div class="row2">
+      <div class="field"><label>Amount Paid (₹)</label><input type="number" id="cpAmount" value="${bal.toFixed(2)}" step="0.01"></div>
+      <div class="field"><label>Date</label><input type="date" id="cpDate" value="${todayISO()}"></div>
+    </div>
+    <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="cpConfirm">Record Payment</button></div>`);
+  document.getElementById('cpConfirm').onclick = ()=>{
+    const amount = parseFloat(document.getElementById('cpAmount').value);
+    if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
+    state.transactions.push({ id: uid(), amount, merchant: c.name+' Bill Payment', note: 'Credit card bill payment',
+      date: document.getElementById('cpDate').value||todayISO(), loggedAt: new Date().toISOString(),
+      category: 'Credit Card', paidBy: 'Me', paymentMethod: 'bank', cardPaid: c.id,
+      isShared: false, split: null, status: 'approved', source: 'manual' });
+    saveState(); closeGen(); renderAll(); toast('Payment recorded — you can edit or delete it anytime from the Ledger');
+  };
+}
 function openEditCard(id){
   const c = state.cards.find(x=>x.id===id); if(!c) return;
   openGenModal(`<h3>Edit Credit Card</h3>
@@ -1172,7 +1250,9 @@ function openEditCard(id){
     <div class="field"><label>Starting Balance Owed (₹)</label><input type="number" id="cBalance2" value="${c.openingBalance}" step="0.01"></div>
     <div class="row2"><div class="field"><label>Bill Generation Date</label><input type="date" id="cBillDate2" value="${c.billDate||''}"></div><div class="field"><label>Payment Due Date</label><input type="date" id="cDueDate2" value="${c.dueDate||''}"></div></div>
     <p class="sub" style="margin-bottom:14px;">Current computed balance (starting balance + card spend − bill payments): <strong>${fmt(cardBalance(c))}</strong></p>
+    <button class="btn ghost small" id="cRecordPayment" style="margin-bottom:14px;">Record Bill Payment</button>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn ghost" style="color:var(--rust);" id="cDelete2">Delete Card</button><button class="btn" id="cSave2">Save</button></div>`);
+  document.getElementById('cRecordPayment').onclick = ()=> openRecordCardPayment(c.id);
   document.getElementById('cDelete2').onclick = ()=>{ state.cards = state.cards.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Card removed'); };
   document.getElementById('cSave2').onclick = ()=>{
     c.name = document.getElementById('cName2').value.trim()||c.name;
