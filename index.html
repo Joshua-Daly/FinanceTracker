@@ -160,6 +160,10 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
   <p id="lockSetupNote" style="display:none;">First time here — set a 4-digit PIN to protect your ledger. This PIN stays only on this device.</p>
 </div>
 
+<div id="setupWizard" style="display:none; position:fixed; inset:0; background:var(--paper); z-index:998; align-items:center; justify-content:center; padding:20px;">
+  <div class="modal" id="wizardModal" style="max-width:420px; border-radius:16px; max-height:none; animation:none;"></div>
+</div>
+
 <div id="app">
   <header class="top">
     <div class="brand">
@@ -212,11 +216,12 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
           <div id="dashUpcoming"></div>
         </div>
       </div>
+      <div id="dashAnomalies"></div>
       <div class="grid cols-2" style="margin-top:20px;">
         <div class="card"><div class="label">Spending by Category</div><div class="chartWrap"><canvas id="catChart"></canvas></div></div>
         <div class="card"><div class="label">Budget Pace</div><div id="dashBudgets"></div></div>
       </div>
-      <div class="section-title"><h2>Recent Activity</h2></div>
+      <div class="section-title"><h2>Recent Activity</h2><button class="btn ghost small" id="repeatLastBtnDash">↻ Repeat Last</button></div>
       <div id="dashRecent"></div>
     </section>
 
@@ -232,7 +237,16 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
     </section>
 
     <section class="view" id="view-ledger">
-      <div class="section-title"><h2>Full Ledger</h2></div>
+      <div class="section-title"><h2>Full Ledger</h2><button class="btn ghost small" id="repeatLastBtnLedger">↻ Repeat Last</button></div>
+      <div class="row2" style="margin-bottom:10px;">
+        <div class="field" style="margin-bottom:0;"><input type="text" id="ledgerSearch" placeholder="Search merchant or note..."></div>
+        <div class="field" style="margin-bottom:0; max-width:160px;"><select id="ledgerCategoryFilter"><option value="all">All Categories</option></select></div>
+      </div>
+      <div class="row2" style="margin-bottom:14px;">
+        <div class="field" style="margin-bottom:0;"><label>From</label><input type="date" id="ledgerDateFrom"></div>
+        <div class="field" style="margin-bottom:0;"><label>To</label><input type="date" id="ledgerDateTo"></div>
+        <button class="btn ghost small" id="ledgerDateClear" style="align-self:flex-end; margin-bottom:2px;">Clear</button>
+      </div>
       <div id="ledgerList"></div>
     </section>
 
@@ -247,6 +261,8 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
         </div>
         <div class="card"><div class="label">By Person</div><div id="peopleBalances"></div></div>
       </div>
+      <div class="section-title"><h2>Contribution Trend (Last 3 Months)</h2></div>
+      <div class="card"><table class="rep" id="personTrendTable"><thead></thead><tbody></tbody></table></div>
       <div class="section-title"><h2>Split Transactions</h2>
         <select id="owedPersonFilter" class="mono" style="background:var(--paper-raised); border:1px solid var(--paper-line); color:var(--ink); border-radius:8px; padding:7px 10px; font-size:.8rem;"><option value="all">All People</option></select>
       </div>
@@ -270,6 +286,10 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
       <div class="grid cols-2" style="margin-top:18px;">
         <div class="card"><div class="label">Category Breakdown</div><table class="rep" id="repCatTable"><thead><tr><th>Category</th><th>Spent</th><th>Share</th></tr></thead><tbody></tbody></table></div>
         <div class="card"><div class="label">Top Merchants</div><table class="rep" id="repMerchTable"><thead><tr><th>Merchant</th><th>Visits</th><th>Total</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card" style="margin-top:18px;">
+        <div class="label">6-Month Category Trend</div>
+        <div class="chartWrap" style="height:260px;"><canvas id="trendChart"></canvas></div>
       </div>
     </section>
 
@@ -343,6 +363,16 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
   <button class="fab" id="fabAdd">+</button>
 </div>
 
+<div class="overlay" id="quickAddOverlay">
+  <div class="modal">
+    <h3>Add Transaction</h3>
+    <div id="qaLastTx"></div>
+    <button class="btn ghost small" id="qaShowFrequent" style="margin-bottom:10px; width:100%;">Show Frequent Transactions</button>
+    <div id="qaFrequentList" style="display:none; margin-bottom:10px;"></div>
+    <div class="modalActions"><button class="btn ghost" id="qaCancel">Cancel</button><button class="btn" id="qaDirectEntry">New Transaction</button></div>
+  </div>
+</div>
+
 <div class="overlay" id="txOverlay">
   <div class="modal">
     <h3>Add Transaction</h3>
@@ -351,6 +381,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
       <div class="field"><label>Date</label><input type="date" id="txDate"></div>
     </div>
     <div class="field"><label>Merchant</label><input type="text" id="txMerchant" placeholder="e.g. Big Bazaar"></div>
+    <div id="recentMerchantChips" style="margin:-6px 0 14px 0;"></div>
     <div class="field"><label>What was this for?</label><textarea id="txNote" placeholder="e.g. Weekly groceries, movie tickets with friends..."></textarea></div>
     <div class="field"><label>Category</label><select id="txCategory"></select></div>
     <div class="field" id="txPaidWithWrap"><label>Paid With</label><select id="txPaidWith"><option value="bank">Bank / Cash</option></select></div>
@@ -376,7 +407,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
 <script>
 const DEFAULT_CATEGORIES = ["Shared","Commute","Food","Shopping","Misc","Social","Personal","Investments","Credit Card","Income"];
 const PROTECTED_CATEGORIES = ["Income","Credit Card"];
-const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '' };
+const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '', merchantMemory: {} };
 let currentEditTx = null;
 let currentSplitType = 'percent';
 
@@ -407,14 +438,15 @@ function loadState(){
   }catch(e){ state.pin = null; }
   if(!state.balanceAsOf) state.balanceAsOf = todayISO();
   if(!state.categories || state.categories.length===0) state.categories = [...DEFAULT_CATEGORIES];
-  if(!state.people || state.people.length===0){ state.people = state.partner ? [state.partner] : ['Sister']; }
+  if(!state.people || state.people.length===0){ state.people = state.partner ? [state.partner] : []; }
+  if(!state.merchantMemory) state.merchantMemory = {};
 }
 function saveState(){
   try{
     localStorage.setItem('tallyup-data', JSON.stringify({
       transactions: state.transactions, recurring: state.recurring, cards: state.cards,
       budgets: state.budgets, settlements: state.settlements, balance: state.balance, balanceAsOf: state.balanceAsOf,
-      people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl
+      people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl, merchantMemory: state.merchantMemory
     }));
   }catch(e){ console.error('save failed', e); toast('Could not save to this browser'); }
 }
@@ -449,7 +481,7 @@ function submitPin(){
       firstPinEntry = pinBuffer; pinBuffer=''; renderPinDots(); settingUpPin = true;
       document.getElementById('lockPrompt').textContent = 'Confirm your PIN'; return;
     } else {
-      if(firstPinEntry === pinBuffer){ savePin(pinBuffer); unlock(); }
+      if(firstPinEntry === pinBuffer){ savePin(pinBuffer); startSetupWizard(); }
       else{
         document.getElementById('lockError').textContent = "PINs didn't match — try again";
         settingUpPin = false; pinBuffer=''; firstPinEntry='';
@@ -462,6 +494,61 @@ function submitPin(){
   else{ document.getElementById('lockError').textContent = 'Incorrect PIN'; pinBuffer=''; renderPinDots(); }
 }
 function unlock(){ document.getElementById('lockScreen').style.display='none'; document.getElementById('app').style.display='block'; renderAll(); }
+/* ---------------- FIRST-TIME SETUP WIZARD ---------------- */
+function startSetupWizard(){
+  document.getElementById('lockScreen').style.display='none';
+  document.getElementById('setupWizard').style.display='flex';
+  renderWizardStep1();
+}
+function renderWizardStep1(){
+  document.getElementById('wizardModal').innerHTML = `
+    <h3>Who do you split with?</h3>
+    <p class="sub" style="margin-bottom:14px;">Add anyone you regularly split expenses with — roommates, siblings, a partner. You can change this anytime in Settings.</p>
+    <div id="wizardPeopleChips" style="margin-bottom:10px;"></div>
+    <div class="row2"><div class="field" style="margin-bottom:0;"><input type="text" id="wizardPersonInput" placeholder="Add a name..."></div><button class="btn ghost small" id="wizardAddPerson">Add</button></div>
+    <div class="modalActions" style="margin-top:20px;"><button class="btn ghost" id="wizardSkip1">Skip for now</button><button class="btn" id="wizardNext1">Continue</button></div>`;
+  renderWizardPeopleChips();
+  const addPerson = ()=>{
+    const input = document.getElementById('wizardPersonInput');
+    const name = input.value.trim();
+    if(!name) return;
+    if(name.toLowerCase()==='me'){ toast('"Me" is already built in'); return; }
+    if(state.people.some(p=>p.toLowerCase()===name.toLowerCase())){ toast('Already added'); return; }
+    state.people.push(name); input.value=''; renderWizardPeopleChips();
+  };
+  document.getElementById('wizardAddPerson').onclick = addPerson;
+  document.getElementById('wizardPersonInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addPerson(); } });
+  document.getElementById('wizardSkip1').onclick = renderWizardStep2;
+  document.getElementById('wizardNext1').onclick = renderWizardStep2;
+}
+function renderWizardPeopleChips(){
+  document.getElementById('wizardPeopleChips').innerHTML = state.people.map(p=>
+    `<span class="chipTag">${escapeHTML(p)}<button data-p="${escapeHTML(p)}" class="wizardRemovePerson">×</button></span>`
+  ).join('') || '<span class="sub">No one added yet — totally fine to add them later.</span>';
+  document.querySelectorAll('.wizardRemovePerson').forEach(b=> b.onclick = ()=>{ state.people = state.people.filter(p=>p!==b.dataset.p); renderWizardPeopleChips(); });
+}
+function renderWizardStep2(){
+  document.getElementById('wizardModal').innerHTML = `
+    <h3>What's your starting balance?</h3>
+    <p class="sub" style="margin-bottom:14px;">Optional, but this makes "Safe to Spend" accurate right away. You can resync this anytime in Settings.</p>
+    <div class="row2">
+      <div class="field"><label>Current Balance (₹)</label><input type="number" id="wizardBalance" placeholder="0.00"></div>
+      <div class="field"><label>As Of</label><input type="date" id="wizardBalanceDate" value="${todayISO()}"></div>
+    </div>
+    <div class="modalActions"><button class="btn ghost" id="wizardSkip2">Skip</button><button class="btn" id="wizardFinish">Finish Setup</button></div>`;
+  document.getElementById('wizardSkip2').onclick = finishWizard;
+  document.getElementById('wizardFinish').onclick = ()=>{
+    const bal = parseFloat(document.getElementById('wizardBalance').value);
+    if(!isNaN(bal)){ state.balance = bal; state.balanceAsOf = document.getElementById('wizardBalanceDate').value || todayISO(); }
+    finishWizard();
+  };
+}
+function finishWizard(){
+  saveState();
+  document.getElementById('setupWizard').style.display='none';
+  unlock();
+  toast('All set — welcome to Tally Up');
+}
 function relock(){
   pinBuffer=''; settingUpPin=false; firstPinEntry='';
   document.getElementById('lockError').textContent='';
@@ -710,6 +797,32 @@ document.getElementById('txCategory').addEventListener('change', (e)=>{
   document.getElementById('txCardPaidWrap').style.display = isCC ? 'block' : 'none';
 });
 
+// Flags categories running notably hotter this month than their recent
+// average -- a lightweight nudge, not a full analytics dashboard. Needs a
+// meaningful baseline (>₹50 avg) and a >30% jump to avoid noise from
+// categories barely used before.
+function computeAnomalies(){
+  const cur = thisMonth();
+  const curSpend = categorySpend(cur);
+  const now = new Date();
+  const prevMonths = [1,2,3].map(i=>{ const d = new Date(now.getFullYear(), now.getMonth()-i, 1); return d.toISOString().slice(0,7); });
+  const anomalies = [];
+  Object.keys(curSpend).forEach(cat=>{
+    const prevAvg = prevMonths.reduce((s,m)=> s + (categorySpend(m)[cat]||0), 0) / prevMonths.length;
+    if(prevAvg > 50 && curSpend[cat] > prevAvg * 1.3){
+      anomalies.push({ cat, pct: Math.round(((curSpend[cat]-prevAvg)/prevAvg)*100), cur: curSpend[cat], avg: prevAvg });
+    }
+  });
+  return anomalies.sort((a,b)=>b.pct-a.pct);
+}
+function renderAnomalies(){
+  const anomalies = computeAnomalies();
+  const wrap = document.getElementById('dashAnomalies');
+  if(anomalies.length===0){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = anomalies.slice(0,2).map(a=>
+    `<div class="infobar" style="border-color:var(--rust-dim); color:var(--ink);">⚠ <strong>${escapeHTML(a.cat)}</strong> is ${a.pct}% above your usual this month — ${fmt(a.cur)} vs a ~${fmt(a.avg)} average.</div>`
+  ).join('');
+}
 function renderDashboard(){
   document.getElementById('dashRunning').textContent = fmt(runningBalance());
   document.getElementById('dashSafe').textContent = fmt(safeToSpend());
@@ -723,6 +836,8 @@ function renderDashboard(){
   owedEl.textContent = fmt(Math.abs(owed));
   owedEl.className = 'big amount ' + (owed>0.004?'positive': owed<-0.004?'negative':'');
   document.getElementById('dashOwedSub').textContent = owed>0.004 ? "You're owed more than you owe" : owed<-0.004 ? "You owe more than you're owed" : "Everyone's settled up";
+
+  renderAnomalies();
 
   const upcoming = upcomingItems(30);
   document.getElementById('dashUpcoming').innerHTML = upcoming.length ? upcoming.map(i=>
@@ -742,7 +857,7 @@ function renderDashboard(){
   if(cats.length===0){ bWrap.innerHTML = '<p class="sub">No budgets set yet — head to the Budgets tab.</p>'; }
   cats.slice(0,4).forEach(cat=> bWrap.appendChild(budgetRowEl(cat, spend[cat]||0, state.budgets[cat])));
 
-  const recent = [...state.transactions].sort((a,b)=> b.date.localeCompare(a.date)).slice(0,6);
+  const recent = [...state.transactions].sort((a,b)=> b.date.localeCompare(a.date) || (b.loggedAt||'').localeCompare(a.loggedAt||'')).slice(0,6);
   document.getElementById('dashRecent').innerHTML = recent.length? recent.map(rowHTML).join('') : emptyHTML('No transactions yet');
   bindRowClicks('dashRecent');
 }
@@ -776,15 +891,66 @@ function bindRowClicks(containerId){
   });
 }
 function renderPending(){
-  const list = pendingTx().sort((a,b)=>b.date.localeCompare(a.date));
+  const list = pendingTx().sort((a,b)=>b.date.localeCompare(a.date) || (b.loggedAt||'').localeCompare(a.loggedAt||''));
   document.getElementById('pendingCount').textContent = list.length? `(${list.length})` : '';
   document.getElementById('pendingList').innerHTML = list.length ? list.map(rowHTML).join('') : emptyHTML('Nothing waiting on you — inbox is clear');
   bindRowClicks('pendingList');
 }
 function renderLedger(){
-  const list = [...state.transactions].sort((a,b)=>b.date.localeCompare(a.date));
-  document.getElementById('ledgerList').innerHTML = list.length? list.map(rowHTML).join('') : emptyHTML('No transactions logged yet');
+  populateLedgerCategoryFilter();
+  const search = (document.getElementById('ledgerSearch').value||'').trim().toLowerCase();
+  const catFilter = document.getElementById('ledgerCategoryFilter').value || 'all';
+  const dateFrom = document.getElementById('ledgerDateFrom').value;
+  const dateTo = document.getElementById('ledgerDateTo').value;
+  let list = [...state.transactions].sort((a,b)=>b.date.localeCompare(a.date) || (b.loggedAt||'').localeCompare(a.loggedAt||''));
+  if(catFilter!=='all') list = list.filter(t=>t.category===catFilter);
+  if(search) list = list.filter(t=> t.merchant.toLowerCase().includes(search) || (t.note||'').toLowerCase().includes(search));
+  if(dateFrom) list = list.filter(t=> t.date >= dateFrom);
+  if(dateTo) list = list.filter(t=> t.date <= dateTo);
+  const anyFilter = search || catFilter!=='all' || dateFrom || dateTo;
+  document.getElementById('ledgerList').innerHTML = list.length? list.map(rowHTML).join('') : emptyHTML(anyFilter ? 'No matching transactions' : 'No transactions logged yet');
   bindRowClicks('ledgerList');
+}
+function populateLedgerCategoryFilter(){
+  const sel = document.getElementById('ledgerCategoryFilter');
+  const prev = sel.value || 'all';
+  sel.innerHTML = '<option value="all">All Categories</option>' + state.categories.map(c=>`<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
+  if([...sel.options].some(o=>o.value===prev)) sel.value = prev;
+}
+document.getElementById('ledgerSearch').addEventListener('input', renderLedger);
+document.getElementById('ledgerCategoryFilter').addEventListener('change', renderLedger);
+document.getElementById('ledgerDateFrom').addEventListener('change', renderLedger);
+document.getElementById('ledgerDateTo').addEventListener('change', renderLedger);
+document.getElementById('ledgerDateClear').addEventListener('click', ()=>{
+  document.getElementById('ledgerDateFrom').value=''; document.getElementById('ledgerDateTo').value=''; renderLedger();
+});
+document.getElementById('repeatLastBtnDash').onclick = repeatLastTransaction;
+document.getElementById('repeatLastBtnLedger').onclick = repeatLastTransaction;
+// How much shared-expense volume each person's been involved in per
+// month, not just their current balance -- useful for spotting whether
+// someone's contribution has dropped off or spiked.
+function personTrendData(monthsBack=3){
+  const months = [];
+  const now = new Date();
+  for(let i=monthsBack-1;i>=0;i--){ const d = new Date(now.getFullYear(), now.getMonth()-i, 1); months.push(d.toISOString().slice(0,7)); }
+  const totals = {};
+  state.people.forEach(p=> totals[p] = {});
+  months.forEach(m=>{
+    state.people.forEach(p=> totals[p][m]=0);
+    approvedTx().filter(t=>t.isShared && t.split && monthKey(t.date)===m).forEach(t=>{
+      Object.entries(t.split.shares).forEach(([person,amt])=>{ if(totals[person]!==undefined) totals[person][m]=(totals[person][m]||0)+amt; });
+    });
+  });
+  return { months, totals };
+}
+function renderPersonTrendTable(){
+  const { months, totals } = personTrendData(3);
+  const table = document.getElementById('personTrendTable');
+  const monthLabels = months.map(m=>{ const [y,mo]=m.split('-'); return new Date(y,mo-1,1).toLocaleDateString('en-IN',{month:'short'}); });
+  table.querySelector('thead').innerHTML = `<tr><th>Person</th>${monthLabels.map(l=>`<th>${l}</th>`).join('')}</tr>`;
+  table.querySelector('tbody').innerHTML = state.people.length ? state.people.map(p=>
+    `<tr><td>${escapeHTML(p)}</td>${months.map(m=>`<td class="amount">${fmt(totals[p][m]||0)}</td>`).join('')}</tr>`
+  ).join('') : `<tr><td colspan="${months.length+1}" style="color:var(--ink-faint);">No people added yet</td></tr>`;
 }
 function renderOwed(){
   const balances = personBalances();
@@ -801,6 +967,7 @@ function renderOwed(){
     return `<div class="personRow"><span class="name">${escapeHTML(p)}</span><span class="sub" style="margin:0 8px;">${label}</span><span class="amt ${cls}">${fmt(Math.abs(bal))}</span></div>`;
   }).join('') : emptyHTML('No people added yet — add some in Settings');
 
+  renderPersonTrendTable();
   populateOwedFilter();
   renderSplitList();
 
@@ -817,7 +984,7 @@ function populateOwedFilter(){
 }
 function renderSplitList(){
   const filterPerson = document.getElementById('owedPersonFilter').value || 'all';
-  let splits = approvedTx().filter(t=>t.isShared && t.split).sort((a,b)=>b.date.localeCompare(a.date));
+  let splits = approvedTx().filter(t=>t.isShared && t.split).sort((a,b)=>b.date.localeCompare(a.date) || (b.loggedAt||'').localeCompare(a.loggedAt||''));
   if(filterPerson !== 'all'){
     splits = splits.filter(t=> t.paidBy===filterPerson || (t.split.shares && t.split.shares[filterPerson]!==undefined));
   }
@@ -930,6 +1097,40 @@ function renderReports(){
   merchBody.innerHTML = sortedMerch.length ? sortedMerch.map(([name,d])=>
     `<tr><td>${escapeHTML(name)}</td><td class="amount">${d.count}</td><td class="amount">${fmt(d.total)}</td></tr>`
   ).join('') : `<tr><td colspan="3" style="color:var(--ink-faint);">No merchants this month</td></tr>`;
+
+  renderTrendChart();
+}
+let trendChartRef = null;
+// Last 6 calendar months, top 5 categories by total spend across that
+// window, so the chart stays readable instead of a rainbow of every
+// category that's ever been used once.
+function categoryTrendData(monthsBack=6){
+  const months = [];
+  const now = new Date();
+  for(let i=monthsBack-1;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    months.push(d.toISOString().slice(0,7));
+  }
+  const totals = {};
+  months.forEach(m=>{ Object.entries(categorySpend(m)).forEach(([cat,amt])=>{ totals[cat]=(totals[cat]||0)+amt; }); });
+  const topCats = Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([cat])=>cat);
+  const monthLabels = months.map(m=>{ const [y,mo]=m.split('-'); return new Date(y,mo-1,1).toLocaleDateString('en-IN',{month:'short'}); });
+  const datasets = topCats.map(cat=> ({ label: cat, data: months.map(m=> categorySpend(m)[cat]||0) }));
+  return { monthLabels, datasets };
+}
+function renderTrendChart(){
+  const { monthLabels, datasets } = categoryTrendData(6);
+  const colors = ['#C9A227','#7FA88C','#C0553A','#8F7420','#4B6B57'];
+  const ctx = document.getElementById('trendChart');
+  if(trendChartRef) trendChartRef.destroy();
+  if(datasets.length===0) return;
+  trendChartRef = new Chart(ctx, {
+    type:'line',
+    data:{ labels: monthLabels, datasets: datasets.map((d,i)=>({ label:d.label, data:d.data, borderColor:colors[i%colors.length], backgroundColor:colors[i%colors.length], tension:0.3, pointRadius:3 })) },
+    options:{ plugins:{ legend:{ position:'bottom', labels:{ color:'#B3A896', boxWidth:10, font:{size:10} } } },
+      scales:{ x:{ ticks:{ color:'#7C7264' }, grid:{ color:'#3A322B' } }, y:{ ticks:{ color:'#7C7264' }, grid:{ color:'#3A322B' }, beginAtZero:true } },
+      maintainAspectRatio:false }
+  });
 }
 document.getElementById('emailReportBtn').onclick = ()=>{
   const m = document.getElementById('reportMonth').value || thisMonth();
@@ -946,11 +1147,118 @@ document.getElementById('emailReportBtn').onclick = ()=>{
 };
 
 /* ---------------- ADD TRANSACTION ---------------- */
-document.getElementById('fabAdd').onclick = ()=> openTxModal();
+document.getElementById('fabAdd').onclick = ()=> openQuickAdd();
+function openQuickAdd(){
+  renderQuickAddLastTx();
+  document.getElementById('qaFrequentList').style.display='none';
+  document.getElementById('qaFrequentList').innerHTML='';
+  document.getElementById('qaShowFrequent').textContent = 'Show Frequent Transactions';
+  document.getElementById('quickAddOverlay').classList.add('open');
+}
+function closeQuickAdd(){ document.getElementById('quickAddOverlay').classList.remove('open'); }
+function renderQuickAddLastTx(){
+  const wrap = document.getElementById('qaLastTx');
+  if(state.transactions.length===0){ wrap.innerHTML = '<p class="sub" style="margin-bottom:14px;">No previous transactions yet — start with a new one below.</p>'; return; }
+  const last = [...state.transactions].sort((a,b)=>(b.loggedAt||'').localeCompare(a.loggedAt||''))[0];
+  wrap.innerHTML = `<div class="card" style="margin-bottom:14px;">
+    <div class="label">Last Transaction</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+      <div style="min-width:0;"><div style="font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHTML(last.merchant)}</div><div class="sub">${last.date} · ${escapeHTML(last.category)}</div></div>
+      <div class="amt" style="flex-shrink:0;">${fmt(last.amount)}</div>
+    </div>
+    <button class="btn small" id="qaRepeatBtn" style="margin-top:10px; width:100%;">Repeat This</button>
+  </div>`;
+  document.getElementById('qaRepeatBtn').onclick = ()=>{ closeQuickAdd(); repeatLastTransaction(); };
+}
+// "Frequent" = most often-used merchants by count, not recency -- a
+// merchant you log constantly but haven't touched in a week should still
+// show up, unlike the recent-merchant chips inside the Add form itself.
+function getFrequentMerchants(limit=5){
+  const counts = {};
+  state.transactions.forEach(t=>{ counts[t.merchant] = (counts[t.merchant]||0)+1; });
+  return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,limit).map(([name,count])=>({name,count}));
+}
+document.getElementById('qaShowFrequent').onclick = ()=>{
+  const listEl = document.getElementById('qaFrequentList');
+  const showing = listEl.style.display !== 'none';
+  if(showing){ listEl.style.display='none'; document.getElementById('qaShowFrequent').textContent='Show Frequent Transactions'; return; }
+  renderFrequentList();
+  listEl.style.display='block';
+  document.getElementById('qaShowFrequent').textContent='Hide Frequent Transactions';
+};
+function renderFrequentList(){
+  const freq = getFrequentMerchants(5);
+  const wrap = document.getElementById('qaFrequentList');
+  if(freq.length===0){ wrap.innerHTML = '<p class="sub">Not enough history yet.</p>'; return; }
+  wrap.innerHTML = freq.map(f=>
+    `<div class="ledgerRow qaFrequentItem" data-name="${escapeHTML(f.name)}"><div class="info"><div class="merchant">${escapeHTML(f.name)}</div><div class="who">logged ${f.count} times</div></div></div>`
+  ).join('');
+  wrap.querySelectorAll('.qaFrequentItem').forEach(el=>{
+    el.onclick = ()=>{
+      const name = el.dataset.name;
+      closeQuickAdd();
+      openTxModal();
+      if(state.merchantMemory[name]) applyMerchantMemory(name);
+      else document.getElementById('txMerchant').value = name;
+      const matching = [...state.transactions].filter(t=>t.merchant===name).sort((a,b)=>(b.loggedAt||'').localeCompare(a.loggedAt||''))[0];
+      if(matching) document.getElementById('txAmount').value = matching.amount;
+      toast(`Filled in from "${name}" — adjust and save`);
+    };
+  });
+}
+document.getElementById('qaDirectEntry').onclick = ()=>{ closeQuickAdd(); openTxModal(); };
+document.getElementById('qaCancel').onclick = closeQuickAdd;
+document.getElementById('quickAddOverlay').addEventListener('click', e=>{ if(e.target.id==='quickAddOverlay') closeQuickAdd(); });
 document.getElementById('simEmailBtn').onclick = ()=> simulateEmail();
 function refreshTxSplitUI(){
   document.getElementById('txSplitParticipants').innerHTML = splitParticipantRowsHTML('tx', {}, currentSplitType);
   document.getElementById('txSplitPreview').textContent='';
+}
+// Remembers the last-used category, split, payment method etc for each
+// merchant, so tapping a recent-merchant chip can auto-fill the whole form.
+function recordMerchantMemory(tx){
+  state.merchantMemory[tx.merchant] = {
+    category: tx.category, isShared: tx.isShared, split: tx.split,
+    paymentMethod: tx.paymentMethod, cardPaid: tx.cardPaid, paidBy: tx.paidBy,
+    lastUsed: tx.loggedAt || new Date().toISOString()
+  };
+}
+function renderRecentMerchantChips(){
+  const names = Object.keys(state.merchantMemory).sort((a,b)=>
+    (state.merchantMemory[b].lastUsed||'').localeCompare(state.merchantMemory[a].lastUsed||'')
+  ).slice(0,8);
+  const wrap = document.getElementById('recentMerchantChips');
+  if(names.length===0){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = `<div style="display:flex; flex-wrap:wrap; gap:6px;">${names.map(n=>
+    `<button type="button" class="btn ghost small recentMerchantChip" data-name="${escapeHTML(n)}" style="padding:5px 12px;">${escapeHTML(n)}</button>`
+  ).join('')}</div>`;
+  wrap.querySelectorAll('.recentMerchantChip').forEach(btn=>{
+    btn.onclick = ()=> applyMerchantMemory(btn.dataset.name);
+  });
+}
+function applyMerchantMemory(name){
+  const mem = state.merchantMemory[name]; if(!mem) return;
+  document.getElementById('txMerchant').value = name;
+  populateCategoryDropdown('txCategory', mem.category);
+  document.getElementById('txPaidWithWrap').style.display = mem.category==='Credit Card' ? 'none':'block';
+  document.getElementById('txCardPaidWrap').style.display = mem.category==='Credit Card' ? 'block':'none';
+  populatePaymentDropdowns();
+  if(mem.category!=='Credit Card' && document.getElementById('txPaidWith').querySelector(`option[value="${mem.paymentMethod}"]`)) document.getElementById('txPaidWith').value = mem.paymentMethod;
+  if(mem.category==='Credit Card' && mem.cardPaid && document.getElementById('txCardPaid').querySelector(`option[value="${mem.cardPaid}"]`)) document.getElementById('txCardPaid').value = mem.cardPaid;
+  populatePaidByDropdown('txPaidBy', mem.paidBy);
+  document.getElementById('txShared').checked = !!mem.isShared;
+  document.getElementById('splitBox').classList.toggle('show', !!mem.isShared);
+  if(mem.isShared && mem.split){
+    currentSplitType = mem.split.type;
+    document.querySelectorAll('#splitBox .chip').forEach(c=>c.classList.toggle('active', c.dataset.split===mem.split.type));
+    document.getElementById('txSplitParticipants').innerHTML = splitParticipantRowsHTML('tx', mem.split.shares, mem.split.type);
+  } else {
+    currentSplitType = 'percent';
+    document.querySelectorAll('#splitBox .chip').forEach(c=>c.classList.toggle('active', c.dataset.split==='percent'));
+    refreshTxSplitUI();
+  }
+  toast(`Filled in from last "${name}" entry — adjust the amount and date`);
+  document.getElementById('txAmount').focus();
 }
 function openTxModal(){
   document.getElementById('txAmount').value=''; document.getElementById('txMerchant').value='';
@@ -965,9 +1273,28 @@ function openTxModal(){
   document.querySelectorAll('#splitBox .chip').forEach(c=>c.classList.toggle('active', c.dataset.split==='percent'));
   refreshTxSplitUI();
   populatePaymentDropdowns();
+  renderRecentMerchantChips();
   document.getElementById('txOverlay').classList.add('open');
 }
 document.getElementById('txCancel').onclick = ()=> document.getElementById('txOverlay').classList.remove('open');
+// Opens the Add modal pre-filled with the most recent transaction's details
+// (merchant, category, split, payment method) but today's date -- for
+// quickly re-logging something you do often, like a weekly grocery run.
+function repeatLastTransaction(){
+  if(state.transactions.length===0){ toast('No previous transactions to repeat yet'); return; }
+  const last = [...state.transactions].sort((a,b)=> (b.loggedAt||'').localeCompare(a.loggedAt||''))[0];
+  openTxModal();
+  document.getElementById('txAmount').value = last.amount;
+  document.getElementById('txNote').value = last.note||'';
+  if(state.merchantMemory[last.merchant]){
+    applyMerchantMemory(last.merchant);
+  } else {
+    document.getElementById('txMerchant').value = last.merchant;
+    populateCategoryDropdown('txCategory', last.category);
+  }
+  document.getElementById('txDate').value = todayISO();
+  toast('Repeating your last transaction — check the details before saving');
+}
 document.getElementById('txShared').onchange = (e)=>{ document.getElementById('splitBox').classList.toggle('show', e.target.checked); };
 document.querySelectorAll('#splitBox .chip').forEach(chip=>{
   chip.onclick = ()=>{
@@ -999,7 +1326,7 @@ document.getElementById('txSave').onclick = ()=>{
     paymentMethod: category==='Credit Card' ? 'bank' : (document.getElementById('txPaidWith').value||'bank'),
     cardPaid: category==='Credit Card' ? (document.getElementById('txCardPaid').value||null) : null,
     isShared, split, status:'approved', source:'manual' };
-  state.transactions.push(tx); saveState();
+  state.transactions.push(tx); recordMerchantMemory(tx); saveState();
   document.getElementById('txOverlay').classList.remove('open'); renderAll(); toast('Added to Ledger');
 };
 function simulateEmail(){
@@ -1024,8 +1351,9 @@ function openApprove(id){
   body.innerHTML = `
     <div class="row2">
       <div class="field"><label>Amount (₹)</label><input type="number" id="apAmount" value="${t.amount}" step="0.01"></div>
-      <div class="field"><label>Date</label><input type="date" id="apDate" value="${t.date}"></div>
+      <div class="field"><label>Date</label><input type="date" id="apDate" value="${isNew ? todayISO() : t.date}"></div>
     </div>
+    <p class="sub" id="apDateHint" style="margin-top:-10px; margin-bottom:14px; display:${isNew?'block':'none'};">Defaulted to today — change this if the transaction actually happened earlier.</p>
     <div class="field"><label>Merchant</label><input type="text" id="apMerchant" value="${escapeHTML(t.merchant)}"></div>
     <div class="field"><label>What was this for?</label><textarea id="apNote">${escapeHTML(t.note||'')}</textarea></div>
     <div class="field"><label>Category</label><select id="apCategory">${catOpts}</select></div>
@@ -1038,7 +1366,8 @@ function openApprove(id){
       <div id="apSplitParticipants"></div>
       <div style="display:flex; gap:8px; align-items:center; margin-top:6px;"><button class="btn ghost small" type="button" id="apSplitEvenlyBtn">Split Evenly</button><div class="splitTotalPreview" id="apSplitPreview"></div></div>
     </div>
-    <div class="modalActions"><button class="btn ghost" style="color:var(--rust);" id="apReject">Delete</button><button class="btn" id="apApprove">${isNew ? 'Approve' : 'Save Changes'}</button></div>`;
+    <div class="modalActions"><button class="btn ghost" id="apCancel">Cancel</button><button class="btn ghost" style="color:var(--rust);" id="apReject">Delete</button><button class="btn" id="apApprove">${isNew ? 'Approve' : 'Save Changes'}</button></div>`;
+  document.getElementById('apCancel').onclick = closeApprove;
 
   document.getElementById('apCategory').addEventListener('change', (e)=>{
     const isCC = e.target.value === 'Credit Card';
@@ -1087,6 +1416,7 @@ function openApprove(id){
       t.split = { type, shares };
     } else { t.split = null; }
     t.status = 'approved';
+    recordMerchantMemory(t);
     saveState(); closeApprove(); renderAll(); toast(isNew ? 'Approved & added to Ledger' : 'Changes saved');
   };
   document.getElementById('approveOverlay').classList.add('open');
