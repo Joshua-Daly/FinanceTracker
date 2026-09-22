@@ -6,11 +6,41 @@ A free, private expense tracker that runs entirely in your browser — split bil
 
 ---
 
+## Nobody sees this but you
+
+That's the actual point of this app, not a footnote. Most finance and splitting apps — Splitwise, Mint, Walnut, and the rest — need your data on their servers to work at all, and several of them monetize that access (ads, lead-selling, "connect your bank" partnerships). Tally Up structurally can't do that, even if it wanted to: everything lives in your browser's local storage, on your device, and the optional Gmail import runs entirely inside *your own* Google account under a script only you control. There's no login, no company, and no server in between.
+
+## How it compares
+
+Most people use two separate apps for what this does in one — something like Splitwise for splitting bills, and something like Mint or YNAB for personal budgeting and cards.
+
+| | **Tally Up** | Splitwise | Mint / Walnut-style | YNAB |
+|---|---|---|---|---|
+| Multi-person splitting | Yes, unlimited people | Yes, best-in-class | No | No |
+| Full multi-party debt graph (A owes B, unrelated to you) | No — tracked from your own view only | Yes | N/A | N/A |
+| Credit cards, recurring bills, budgets | Yes | No | Yes | Partial |
+| Bank/email auto-import | Yes, via your own Gmail + Sheet | No | Yes, via linked bank accounts | Yes (paid regions) |
+| Where your data lives | **Your device only** | Their servers | Their servers | Their servers |
+| Cost | Free, no ads | Free / $3-mo Pro | Free but ad/lead-monetized | ~$99/yr |
+| Cross-device sync | **No** | Yes | Yes | Yes |
+| Live bank balance | Manual resync | N/A | Real API-linked | Bank-linked |
+| Setup effort | You configure the Gmail parser yourself | Zero | Zero (just log in) | Low |
+
+**Genuine strengths:**
+- Nobody — not a company, not an advertiser — ever sees your transactions
+- No ads, no subscription, no "upgrade to see your own data" wall
+- Merges two product categories (bill-splitter + personal tracker) that most people juggle as two separate apps
+
+**Genuine weaknesses:**
+- **No cross-device sync is the biggest functional gap.** Two people can't see the same live "who owes who" — this is exactly Splitwise's core value, and right now this app can't match it
+- **No live bank balance.** Real fintech apps are plugged into your bank; this is only as accurate as your last manual resync
+- **Setup friction.** A non-technical person can't just log in — they'd need to build a Google Apps Script themselves to get auto-import working
+
 ## What this actually is
 
-Tally Up is a single web page. There's no company, no account system, and no database anywhere except **your own phone's browser storage**. When you open the link and install it, you get your own private copy — nobody else can see your data, including whoever forked or hosts this code.
+Tally Up is a single web page — one HTML file with everything built in, hosted for free on GitHub Pages. When you open the link and install it, you get your own private copy running entirely in your browser.
 
-If you want, you can also connect it to a Google Sheet you own, which auto-scrapes your own Gmail for bank alert emails and feeds them into the app for you to review. That part is entirely optional and entirely under your own Google account — this project never has access to it.
+If you want, you can also connect it to a Google Sheet you own, which auto-scrapes your own Gmail for bank alert emails and feeds them into the app for you to review. That part is entirely optional.
 
 ## Features
 
