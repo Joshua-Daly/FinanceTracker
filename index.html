@@ -93,8 +93,25 @@ main{ padding:22px 20px; max-width:100%; overflow-x:hidden; }
 .btn.ghost:hover{ border-color:var(--brass-dim); color:var(--brass); transform:none; }
 .btn.danger{ background:var(--rust); color:#fff; }
 .btn.small{ padding:6px 12px; font-size:.75rem; }
-.fab{ position:fixed; bottom:24px; right:24px; width:58px; height:58px; border-radius:50%; background:var(--brass); color:#1A1613; font-size:1.6rem; border:none; cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.45); z-index:50; transition:transform .15s; }
+.fab{ position:fixed; bottom:24px; right:24px; width:58px; height:58px; border-radius:50%; background:var(--brass); color:#1A1613; font-size:1.6rem; border:none; cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.45); z-index:56; transition:transform .15s; display:flex; align-items:center; justify-content:center; }
 .fab:active{ transform:scale(0.92); }
+#fabIcon{ display:inline-block; transition:transform .25s cubic-bezier(.34,1.56,.64,1); line-height:1; }
+.fab.open #fabIcon{ transform:rotate(45deg); }
+#fabBackdrop{ position:fixed; inset:0; background:rgba(10,8,6,0.45); opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:50; }
+#fabBackdrop.open{ opacity:1; pointer-events:auto; }
+.fanItem{
+  position:fixed; right:24px; display:flex; align-items:center; gap:8px;
+  background:var(--paper-raised); border:1px solid var(--paper-line); border-radius:30px;
+  padding:11px 20px 11px 16px; box-shadow:var(--shadow); color:var(--ink); font-family:inherit;
+  font-size:.85rem; font-weight:600; cursor:pointer; white-space:nowrap;
+  opacity:0; transform:translateY(16px) scale(0.85); pointer-events:none;
+  transition:transform .28s cubic-bezier(.34,1.56,.64,1), opacity .2s ease;
+  z-index:55; max-width:calc(100vw - 48px); overflow:hidden; text-overflow:ellipsis;
+}
+.fanItem.open{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+.fanItem:disabled{ opacity:0.4; pointer-events:none; }
+.fanIcon{ font-size:1.05rem; flex-shrink:0; color:var(--brass); }
+.fanLabel{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 .budgetRow{ margin-bottom:16px; }
 .budgetRow .bHead{ display:flex; justify-content:space-between; font-size:.8rem; margin-bottom:6px; gap:8px; }
@@ -360,17 +377,11 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
       </div>
     </section>
   </main>
-  <button class="fab" id="fabAdd">+</button>
-</div>
-
-<div class="overlay" id="quickAddOverlay">
-  <div class="modal">
-    <h3>Add Transaction</h3>
-    <div id="qaLastTx"></div>
-    <button class="btn ghost small" id="qaShowFrequent" style="margin-bottom:10px; width:100%;">Show Frequent Transactions</button>
-    <div id="qaFrequentList" style="display:none; margin-bottom:10px;"></div>
-    <div class="modalActions"><button class="btn ghost" id="qaCancel">Cancel</button><button class="btn" id="qaDirectEntry">New Transaction</button></div>
-  </div>
+  <div id="fabBackdrop"></div>
+  <button class="fanItem" id="fanLastTx" style="bottom:96px;"><span class="fanIcon">↻</span><span class="fanLabel" id="fanLastTxLabel">Repeat Last</span></button>
+  <button class="fanItem" id="fanFrequent" style="bottom:150px;"><span class="fanIcon">★</span><span class="fanLabel">Frequent</span></button>
+  <button class="fanItem" id="fanNew" style="bottom:204px;"><span class="fanIcon">＋</span><span class="fanLabel">New Transaction</span></button>
+  <button class="fab" id="fabAdd"><span id="fabIcon">+</span></button>
 </div>
 
 <div class="overlay" id="txOverlay">
@@ -566,6 +577,7 @@ function initLock(){
 
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
+    closeFan();
     document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     btn.classList.add('active');
@@ -1146,30 +1158,40 @@ document.getElementById('emailReportBtn').onclick = ()=>{
   window.location.href = `mailto:?subject=${subject}&body=${mailBody}`;
 };
 
-/* ---------------- ADD TRANSACTION ---------------- */
-document.getElementById('fabAdd').onclick = ()=> openQuickAdd();
-function openQuickAdd(){
-  renderQuickAddLastTx();
-  document.getElementById('qaFrequentList').style.display='none';
-  document.getElementById('qaFrequentList').innerHTML='';
-  document.getElementById('qaShowFrequent').textContent = 'Show Frequent Transactions';
-  document.getElementById('quickAddOverlay').classList.add('open');
+/* ---------------- ADD TRANSACTION: FAN-OUT QUICK-ADD ---------------- */
+let fanOpen = false;
+document.getElementById('fabAdd').onclick = ()=> fanOpen ? closeFan() : openFan();
+document.getElementById('fabBackdrop').onclick = closeFan;
+function openFan(){
+  fanOpen = true;
+  document.getElementById('fabAdd').classList.add('open');
+  document.getElementById('fabBackdrop').classList.add('open');
+  renderFanLastTxLabel();
+  const items = ['fanLastTx','fanFrequent','fanNew'].map(id=>document.getElementById(id));
+  items.forEach((el,i)=>{ el.style.transitionDelay = (i*45)+'ms'; el.classList.add('open'); });
 }
-function closeQuickAdd(){ document.getElementById('quickAddOverlay').classList.remove('open'); }
-function renderQuickAddLastTx(){
-  const wrap = document.getElementById('qaLastTx');
-  if(state.transactions.length===0){ wrap.innerHTML = '<p class="sub" style="margin-bottom:14px;">No previous transactions yet — start with a new one below.</p>'; return; }
-  const last = [...state.transactions].sort((a,b)=>(b.loggedAt||'').localeCompare(a.loggedAt||''))[0];
-  wrap.innerHTML = `<div class="card" style="margin-bottom:14px;">
-    <div class="label">Last Transaction</div>
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-      <div style="min-width:0;"><div style="font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHTML(last.merchant)}</div><div class="sub">${last.date} · ${escapeHTML(last.category)}</div></div>
-      <div class="amt" style="flex-shrink:0;">${fmt(last.amount)}</div>
-    </div>
-    <button class="btn small" id="qaRepeatBtn" style="margin-top:10px; width:100%;">Repeat This</button>
-  </div>`;
-  document.getElementById('qaRepeatBtn').onclick = ()=>{ closeQuickAdd(); repeatLastTransaction(); };
+function closeFan(){
+  fanOpen = false;
+  document.getElementById('fabAdd').classList.remove('open');
+  document.getElementById('fabBackdrop').classList.remove('open');
+  const items = ['fanLastTx','fanFrequent','fanNew'].map(id=>document.getElementById(id));
+  items.forEach(el=>{ el.style.transitionDelay = '0ms'; el.classList.remove('open'); });
 }
+function renderFanLastTxLabel(){
+  const label = document.getElementById('fanLastTxLabel');
+  const btn = document.getElementById('fanLastTx');
+  if(state.transactions.length===0){
+    label.textContent = 'No previous transactions';
+    btn.disabled = true;
+  } else {
+    const last = [...state.transactions].sort((a,b)=>(b.loggedAt||'').localeCompare(a.loggedAt||''))[0];
+    label.textContent = `Repeat: ${last.merchant} (${fmt(last.amount)})`;
+    btn.disabled = false;
+  }
+}
+document.getElementById('fanLastTx').onclick = ()=>{ closeFan(); repeatLastTransaction(); };
+document.getElementById('fanNew').onclick = ()=>{ closeFan(); openTxModal(); };
+document.getElementById('fanFrequent').onclick = ()=>{ closeFan(); openFrequentPicker(); };
 // "Frequent" = most often-used merchants by count, not recency -- a
 // merchant you log constantly but haven't touched in a week should still
 // show up, unlike the recent-merchant chips inside the Add form itself.
@@ -1178,25 +1200,16 @@ function getFrequentMerchants(limit=5){
   state.transactions.forEach(t=>{ counts[t.merchant] = (counts[t.merchant]||0)+1; });
   return Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,limit).map(([name,count])=>({name,count}));
 }
-document.getElementById('qaShowFrequent').onclick = ()=>{
-  const listEl = document.getElementById('qaFrequentList');
-  const showing = listEl.style.display !== 'none';
-  if(showing){ listEl.style.display='none'; document.getElementById('qaShowFrequent').textContent='Show Frequent Transactions'; return; }
-  renderFrequentList();
-  listEl.style.display='block';
-  document.getElementById('qaShowFrequent').textContent='Hide Frequent Transactions';
-};
-function renderFrequentList(){
+function openFrequentPicker(){
   const freq = getFrequentMerchants(5);
-  const wrap = document.getElementById('qaFrequentList');
-  if(freq.length===0){ wrap.innerHTML = '<p class="sub">Not enough history yet.</p>'; return; }
-  wrap.innerHTML = freq.map(f=>
+  const listHtml = freq.length ? freq.map(f=>
     `<div class="ledgerRow qaFrequentItem" data-name="${escapeHTML(f.name)}"><div class="info"><div class="merchant">${escapeHTML(f.name)}</div><div class="who">logged ${f.count} times</div></div></div>`
-  ).join('');
-  wrap.querySelectorAll('.qaFrequentItem').forEach(el=>{
+  ).join('') : '<p class="sub">Not enough history yet.</p>';
+  openGenModal(`<h3>Frequent Transactions</h3>${listHtml}<div class="modalActions" style="margin-top:16px;"><button class="btn ghost" id="genCancel">Cancel</button></div>`);
+  document.querySelectorAll('.qaFrequentItem').forEach(el=>{
     el.onclick = ()=>{
       const name = el.dataset.name;
-      closeQuickAdd();
+      closeGen();
       openTxModal();
       if(state.merchantMemory[name]) applyMerchantMemory(name);
       else document.getElementById('txMerchant').value = name;
@@ -1206,9 +1219,6 @@ function renderFrequentList(){
     };
   });
 }
-document.getElementById('qaDirectEntry').onclick = ()=>{ closeQuickAdd(); openTxModal(); };
-document.getElementById('qaCancel').onclick = closeQuickAdd;
-document.getElementById('quickAddOverlay').addEventListener('click', e=>{ if(e.target.id==='quickAddOverlay') closeQuickAdd(); });
 document.getElementById('simEmailBtn').onclick = ()=> simulateEmail();
 function refreshTxSplitUI(){
   document.getElementById('txSplitParticipants').innerHTML = splitParticipantRowsHTML('tx', {}, currentSplitType);
