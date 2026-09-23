@@ -1352,6 +1352,11 @@ function openApprove(id){
   currentEditTx = id;
   const t = state.transactions.find(x=>x.id===id);
   const isNew = t.status==='pending';
+  // Only default to today for pending items with no real known date behind
+  // them (manual "simulate" entries). Gmail-sourced items already carry a
+  // genuinely parsed transaction date (and now time) from the email itself
+  // -- overriding that with "today" would throw away real, accurate data.
+  const defaultToToday = isNew && t.source !== 'email-sheet';
   document.querySelector('#approveOverlay .modal h3').textContent = isNew ? 'Review & Categorize' : 'Edit Transaction';
   const body = document.getElementById('approveBody');
   const cardOpts = state.cards.map(c=>`<option value="${c.id}" ${t.paymentMethod===c.id?'selected':''}>${escapeHTML(c.name)}</option>`).join('');
@@ -1361,9 +1366,10 @@ function openApprove(id){
   body.innerHTML = `
     <div class="row2">
       <div class="field"><label>Amount (₹)</label><input type="number" id="apAmount" value="${t.amount}" step="0.01"></div>
-      <div class="field"><label>Date</label><input type="date" id="apDate" value="${isNew ? todayISO() : t.date}"></div>
+      <div class="field"><label>Date</label><input type="date" id="apDate" value="${defaultToToday ? todayISO() : t.date}"></div>
     </div>
-    <p class="sub" id="apDateHint" style="margin-top:-10px; margin-bottom:14px; display:${isNew?'block':'none'};">Defaulted to today — change this if the transaction actually happened earlier.</p>
+    <p class="sub" id="apDateHint" style="margin-top:-10px; margin-bottom:14px; display:${defaultToToday?'block':'none'};">Defaulted to today — change this if the transaction actually happened earlier.</p>
+    <p class="sub" id="apDateHintSynced" style="margin-top:-10px; margin-bottom:14px; display:${(isNew && t.source==='email-sheet')?'block':'none'};">This date was read from the bank email — change it only if it looks wrong.</p>
     <div class="field"><label>Merchant</label><input type="text" id="apMerchant" value="${escapeHTML(t.merchant)}"></div>
     <div class="field"><label>What was this for?</label><textarea id="apNote">${escapeHTML(t.note||'')}</textarea></div>
     <div class="field"><label>Category</label><select id="apCategory">${catOpts}</select></div>
@@ -1632,9 +1638,20 @@ document.getElementById('syncSheetBtn').onclick = async ()=>{
     let added = 0;
     rows.forEach(r=>{
       if(state.transactions.some(t=>t.sourceId === r.id)) return;
+      const txDate = (r.date||todayISO()).slice(0,10);
+      // If the parser (Gemini or regex) captured a real time-of-day from
+      // the email, use the actual transaction moment for loggedAt instead
+      // of "now" -- this is what makes sorting and same-day ordering
+      // reflect when the purchase really happened, not when you happened
+      // to tap Sync.
+      let loggedAt = new Date().toISOString();
+      if(r.time){
+        const combined = new Date(`${txDate}T${r.time}:00`);
+        if(!isNaN(combined.getTime())) loggedAt = combined.toISOString();
+      }
       state.transactions.push({
         id: uid(), sourceId: r.id, amount: parseFloat(r.amount)||0, merchant: r.merchant || 'Unknown',
-        note: r.note || '', date: (r.date||todayISO()).slice(0,10), loggedAt: new Date().toISOString(),
+        note: r.note || '', date: txDate, loggedAt,
         category: r.direction==='credit' ? 'Income' : 'Misc', paidBy:'Me', paymentMethod:'bank', cardPaid:null, isShared:false, split:null,
         status:'pending', source:'email-sheet'
       });
