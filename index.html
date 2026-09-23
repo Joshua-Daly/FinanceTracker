@@ -356,6 +356,8 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
       </div>
       <div class="grid cols-2" style="margin-top:16px;">
         <div class="card">
+          <div class="label">Your Name <span style="color:var(--ink-faint); text-transform:none;">(shown instead of "Me")</span></div>
+          <div class="field" style="margin-top:8px;"><input type="text" id="myNameInput" placeholder="Me"></div>
           <div class="label">Google Sheet Sync URL <span style="color:var(--ink-faint); text-transform:none;">(Apps Script Web App link)</span></div>
           <div class="field" style="margin-top:8px;"><input type="text" id="sheetUrlInput" placeholder="https://script.google.com/macros/s/.../exec"></div>
           <div class="label" style="margin-top:14px;">Currency</div>
@@ -370,6 +372,9 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
             <div class="field"><label>As Of</label><input type="date" id="balanceAsOfInput"></div>
           </div>
           <button class="btn ghost" id="resyncBtn">Resync Balance</button>
+          <div class="label" style="margin-top:16px;">Budget Cycle Start Day <span style="color:var(--ink-faint); text-transform:none;">(1 = calendar month, default)</span></div>
+          <p class="sub" style="margin-bottom:10px;">Only affects the Dashboard's "current period" view (budget pace, category chart, cash in/out) — Reports always stays on real calendar months.</p>
+          <div class="field"><input type="number" id="cycleStartDayInput" min="1" max="28" placeholder="1"></div>
         </div>
       </div>
       <div class="card" style="margin-top:16px;">
@@ -423,19 +428,24 @@ const PROTECTED_CATEGORIES = ["Income","Credit Card"];
 // JPY intentionally has 0 decimals -- yen doesn't use subunits day-to-day,
 // so showing "¥500.00" would look wrong to anyone actually using it.
 const CURRENCIES = {
-  INR: { symbol: '₹', locale: 'en-IN', decimals: 2, label: 'Indian Rupee (₹)' },
-  USD: { symbol: '$', locale: 'en-US', decimals: 2, label: 'US Dollar ($)' },
-  EUR: { symbol: '€', locale: 'de-DE', decimals: 2, label: 'Euro (€)' },
-  GBP: { symbol: '£', locale: 'en-GB', decimals: 2, label: 'British Pound (£)' },
-  AUD: { symbol: '$', locale: 'en-AU', decimals: 2, label: 'Australian Dollar ($)' },
-  CAD: { symbol: '$', locale: 'en-CA', decimals: 2, label: 'Canadian Dollar ($)' },
-  SGD: { symbol: '$', locale: 'en-SG', decimals: 2, label: 'Singapore Dollar ($)' },
-  JPY: { symbol: '¥', locale: 'ja-JP', decimals: 0, label: 'Japanese Yen (¥)' }
+  INR: { symbol: '₹', locale: 'en-IN', decimals: 2, label: 'Indian Rupee (₹)', anomalyFloor: 50 },
+  USD: { symbol: '$', locale: 'en-US', decimals: 2, label: 'US Dollar ($)', anomalyFloor: 1 },
+  EUR: { symbol: '€', locale: 'de-DE', decimals: 2, label: 'Euro (€)', anomalyFloor: 1 },
+  GBP: { symbol: '£', locale: 'en-GB', decimals: 2, label: 'British Pound (£)', anomalyFloor: 1 },
+  AUD: { symbol: '$', locale: 'en-AU', decimals: 2, label: 'Australian Dollar ($)', anomalyFloor: 1 },
+  CAD: { symbol: '$', locale: 'en-CA', decimals: 2, label: 'Canadian Dollar ($)', anomalyFloor: 1 },
+  SGD: { symbol: '$', locale: 'en-SG', decimals: 2, label: 'Singapore Dollar ($)', anomalyFloor: 1 },
+  JPY: { symbol: '¥', locale: 'ja-JP', decimals: 0, label: 'Japanese Yen (¥)', anomalyFloor: 100 }
 };
 function curInfo(){ return CURRENCIES[state.currency] || CURRENCIES.INR; }
 function curSym(){ return curInfo().symbol; }
+// Shows the user's own chosen name wherever "Me" would otherwise appear
+// on screen. Internal logic (paidBy comparisons, split share keys,
+// participantList()) always keeps using the literal string "Me" -- only
+// what's rendered to the user changes.
+function displayName(name){ return name==='Me' ? (state.myName||'Me') : name; }
 
-const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR' };
+const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR', myName: '', budgetCycleStartDay: 1 };
 let currentEditTx = null;
 let currentSplitType = 'percent';
 
@@ -469,6 +479,8 @@ function loadState(){
   if(!state.people || state.people.length===0){ state.people = state.partner ? [state.partner] : []; }
   if(!state.merchantMemory) state.merchantMemory = {};
   if(!state.currency || !CURRENCIES[state.currency]) state.currency = 'INR';
+  if(!state.myName) state.myName = '';
+  if(!state.budgetCycleStartDay || state.budgetCycleStartDay<1 || state.budgetCycleStartDay>28) state.budgetCycleStartDay = 1;
 }
 function saveState(){
   try{
@@ -476,7 +488,7 @@ function saveState(){
       transactions: state.transactions, recurring: state.recurring, cards: state.cards,
       budgets: state.budgets, settlements: state.settlements, balance: state.balance, balanceAsOf: state.balanceAsOf,
       people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl, merchantMemory: state.merchantMemory,
-      currency: state.currency
+      currency: state.currency, myName: state.myName, budgetCycleStartDay: state.budgetCycleStartDay
     }));
   }catch(e){ console.error('save failed', e); toast('Could not save to this browser'); }
 }
@@ -610,6 +622,51 @@ function approvedTx(){ return state.transactions.filter(t=>t.status==='approved'
 function pendingTx(){ return state.transactions.filter(t=>t.status==='pending'); }
 function monthKey(d){ return d.slice(0,7); }
 function thisMonth(){ return todayISO().slice(0,7); }
+// Budget-cycle-aware bucketing, used only by the Dashboard's "current
+// period" views (budget pace, category chart, cash in/out, anomaly
+// detection). When budgetCycleStartDay is unset or 1 (the default),
+// this degenerates EXACTLY to monthKey/thisMonth -- byte-identical
+// behavior to before for anyone who never touches the new setting.
+// The Reports tab deliberately keeps using plain calendar months always
+// (monthKey/cashInOut/categorySpend with an explicit month string),
+// since that's what its native month-picker control represents -- it's
+// untouched by this feature entirely.
+function cycleMonthKey(dateStr){
+  const startDay = state.budgetCycleStartDay || 1;
+  if(startDay <= 1) return dateStr.slice(0,7);
+  const d = new Date(dateStr+'T00:00:00');
+  const day = d.getDate();
+  let y = d.getFullYear(), m = d.getMonth();
+  if(day < startDay){ m -= 1; if(m<0){ m=11; y-=1; } }
+  return `${y}-${String(m+1).padStart(2,'0')}`;
+}
+function currentCycleKey(){ return cycleMonthKey(todayISO()); }
+function categorySpendForCycleKey(key){
+  const map = {};
+  approvedTx().filter(t=>cycleMonthKey(t.date)===key && t.category!=='Income').forEach(t=>{ map[t.category] = (map[t.category]||0) + t.amount; });
+  return map;
+}
+function categorySpendCurrentCycle(){ return categorySpendForCycleKey(currentCycleKey()); }
+function cashInOutCurrentCycle(){
+  const key = currentCycleKey(); let inflow=0, outflow=0;
+  approvedTx().filter(t=>cycleMonthKey(t.date)===key).forEach(t=>{ if(t.category==='Income') inflow += t.amount; else outflow += t.amount; });
+  return {inflow, outflow};
+}
+// Previous N period keys for trailing-average comparisons. Falls back to
+// the EXACT original precise-calendar-month calculation when no custom
+// cycle is set, so default behavior never changes; only approximates
+// (30-day steps) when a custom cycle start day is actually in use, since
+// custom cycles don't align to simple month arithmetic.
+function prevCycleKeys(n){
+  const startDay = state.budgetCycleStartDay || 1;
+  const now = new Date();
+  if(startDay <= 1){
+    return Array.from({length:n}, (_,idx)=>{ const i=idx+1; const d = new Date(now.getFullYear(), now.getMonth()-i, 1); return d.toISOString().slice(0,7); });
+  }
+  const keys = [];
+  for(let i=1;i<=n;i++){ const ref = new Date(now.getTime() - i*30*24*60*60*1000); keys.push(cycleMonthKey(ref.toISOString().slice(0,10))); }
+  return keys;
+}
 function cashInOut(monthStr){
   const m = monthStr || thisMonth(); let inflow=0, outflow=0;
   approvedTx().filter(t=>monthKey(t.date)===m).forEach(t=>{ if(t.category==='Income') inflow += t.amount; else outflow += t.amount; });
@@ -703,7 +760,7 @@ function splitParticipantRowsHTML(prefix, existingShares, splitType){
     const val = checked ? existingShares[name] : '';
     const manualAttr = (checked && splitType==='exact') ? 'data-manual="true"' : '';
     return `<div class="splitPersonRow">
-      <label><input type="checkbox" class="${prefix}SplitInclude" data-person="${escapeHTML(name)}" ${checked?'checked':''}><span>${escapeHTML(name)}</span></label>
+      <label><input type="checkbox" class="${prefix}SplitInclude" data-person="${escapeHTML(name)}" ${checked?'checked':''}><span>${escapeHTML(displayName(name))}</span></label>
       <input type="number" class="${prefix}SplitValue" data-person="${escapeHTML(name)}" ${manualAttr} step="0.01" placeholder="${splitType==='exact'?curSym():'%'}" style="display:${checked?'inline-block':'none'};" value="${val}">
     </div>`;
   }).join('');
@@ -803,6 +860,8 @@ function renderAll(){
   document.getElementById('sheetUrlInput').value = state.sheetSyncUrl||'';
   document.getElementById('balanceInput').value = state.balance||0;
   document.getElementById('balanceAsOfInput').value = state.balanceAsOf||todayISO();
+  document.getElementById('myNameInput').value = state.myName||'';
+  document.getElementById('cycleStartDayInput').value = state.budgetCycleStartDay||1;
   populatePaymentDropdowns();
   populateCategoryDropdown('txCategory');
   populatePaidByDropdown('txPaidBy');
@@ -839,7 +898,7 @@ function populateCategoryDropdown(id, selected){
 }
 function populatePaidByDropdown(id, selected){
   const el = document.getElementById(id); if(!el) return;
-  el.innerHTML = participantList().map(p=>`<option ${p===selected?'selected':''}>${escapeHTML(p)}</option>`).join('');
+  el.innerHTML = participantList().map(p=>`<option value="${escapeHTML(p)}" ${p===selected?'selected':''}>${escapeHTML(displayName(p))}</option>`).join('');
 }
 document.getElementById('txCategory').addEventListener('change', (e)=>{
   const isCC = e.target.value === 'Credit Card';
@@ -852,14 +911,13 @@ document.getElementById('txCategory').addEventListener('change', (e)=>{
 // meaningful baseline (>₹50 avg) and a >30% jump to avoid noise from
 // categories barely used before.
 function computeAnomalies(){
-  const cur = thisMonth();
-  const curSpend = categorySpend(cur);
-  const now = new Date();
-  const prevMonths = [1,2,3].map(i=>{ const d = new Date(now.getFullYear(), now.getMonth()-i, 1); return d.toISOString().slice(0,7); });
+  const curSpend = categorySpendCurrentCycle();
+  const prevKeys = prevCycleKeys(3);
+  const floor = curInfo().anomalyFloor;
   const anomalies = [];
   Object.keys(curSpend).forEach(cat=>{
-    const prevAvg = prevMonths.reduce((s,m)=> s + (categorySpend(m)[cat]||0), 0) / prevMonths.length;
-    if(prevAvg > 50 && curSpend[cat] > prevAvg * 1.3){
+    const prevAvg = prevKeys.reduce((s,k)=> s + (categorySpendForCycleKey(k)[cat]||0), 0) / prevKeys.length;
+    if(prevAvg > floor && curSpend[cat] > prevAvg * 1.3){
       anomalies.push({ cat, pct: Math.round(((curSpend[cat]-prevAvg)/prevAvg)*100), cur: curSpend[cat], avg: prevAvg });
     }
   });
@@ -876,7 +934,7 @@ function renderAnomalies(){
 function renderDashboard(){
   document.getElementById('dashRunning').textContent = fmt(runningBalance());
   document.getElementById('dashSafe').textContent = fmt(safeToSpend());
-  const {inflow, outflow} = cashInOut();
+  const {inflow, outflow} = cashInOutCurrentCycle();
   document.getElementById('dashIn').textContent = fmt(inflow);
   document.getElementById('dashOut').textContent = fmt(outflow);
   const total = inflow+outflow || 1;
@@ -894,7 +952,7 @@ function renderDashboard(){
     `<div class="upItem"><span class="tag">${i.type}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(i.name)}</span><span class="mono" style="color:var(--ink-faint);">${i.dueDate}</span><span class="amt">${fmt(i.amount)}</span></div>`
   ).join('') : '<p class="sub">Nothing due in the next 30 days.</p>';
 
-  const spend = categorySpend();
+  const spend = categorySpendCurrentCycle();
   const labels = Object.keys(spend), data = Object.values(spend);
   const ctx = document.getElementById('catChart');
   if(chartRef) chartRef.destroy();
@@ -922,11 +980,11 @@ function budgetRowEl(cat, spent, limit){
 function rowHTML(t){
   const sign = t.category==='Income' ? '+' : '−';
   const cls = t.category==='Income' ? 'positive' : '';
-  const timePart = t.loggedAt ? new Date(t.loggedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : '';
+  const timePart = t.loggedAt ? new Date(t.loggedAt).toLocaleTimeString(curInfo().locale,{hour:'2-digit',minute:'2-digit'}) : '';
   return `<div class="ledgerRow" data-id="${t.id}">
     <div class="info">
       <div class="merchant">${escapeHTML(t.merchant)}</div>
-      <div class="who">${t.date}${timePart? ' · '+timePart:''} · paid by ${escapeHTML(t.paidBy||'—')}${t.isShared?' · split':''}</div>
+      <div class="who">${t.date}${timePart? ' · '+timePart:''} · paid by ${escapeHTML(displayName(t.paidBy||'—'))}${t.isShared?' · split':''}</div>
       ${t.note ? `<div class="note">${escapeHTML(t.note)}</div>` : ''}
     </div>
     <div class="leader"></div>
@@ -996,7 +1054,7 @@ function personTrendData(monthsBack=3){
 function renderPersonTrendTable(){
   const { months, totals } = personTrendData(3);
   const table = document.getElementById('personTrendTable');
-  const monthLabels = months.map(m=>{ const [y,mo]=m.split('-'); return new Date(y,mo-1,1).toLocaleDateString('en-IN',{month:'short'}); });
+  const monthLabels = months.map(m=>{ const [y,mo]=m.split('-'); return new Date(y,mo-1,1).toLocaleDateString(curInfo().locale,{month:'short'}); });
   table.querySelector('thead').innerHTML = `<tr><th>Person</th>${monthLabels.map(l=>`<th>${l}</th>`).join('')}</tr>`;
   table.querySelector('tbody').innerHTML = state.people.length ? state.people.map(p=>
     `<tr><td>${escapeHTML(p)}</td>${months.map(m=>`<td class="amount">${fmt(totals[p][m]||0)}</td>`).join('')}</tr>`
@@ -1039,8 +1097,8 @@ function renderSplitList(){
     splits = splits.filter(t=> t.paidBy===filterPerson || (t.split.shares && t.split.shares[filterPerson]!==undefined));
   }
   document.getElementById('splitList').innerHTML = splits.length ? splits.map(t=>{
-    const shareText = Object.entries(t.split.shares).map(([p,amt])=>`${escapeHTML(p)}: ${fmt(amt)}`).join(' · ');
-    return `<div class="ledgerRow"><div class="info"><div class="merchant">${escapeHTML(t.merchant)}</div><div class="who">${t.date} · paid by ${escapeHTML(t.paidBy)}</div><div class="note">${shareText}</div></div></div>`;
+    const shareText = Object.entries(t.split.shares).map(([p,amt])=>`${escapeHTML(displayName(p))}: ${fmt(amt)}`).join(' · ');
+    return `<div class="ledgerRow"><div class="info"><div class="merchant">${escapeHTML(t.merchant)}</div><div class="who">${t.date} · paid by ${escapeHTML(displayName(t.paidBy))}</div><div class="note">${shareText}</div></div></div>`;
   }).join('') : emptyHTML(filterPerson==='all' ? 'No shared expenses yet' : `No shared expenses involving ${escapeHTML(filterPerson)}`);
 }
 document.getElementById('owedPersonFilter').addEventListener('change', renderSplitList);
@@ -1059,7 +1117,7 @@ function bindSettlementClicks(){
   });
 }
 function renderBudgets(){
-  const spend = categorySpend();
+  const spend = categorySpendCurrentCycle();
   const wrap = document.getElementById('budgetList'); wrap.innerHTML='';
   const cats = Object.keys(state.budgets);
   if(cats.length===0){ wrap.innerHTML = emptyHTML('No budgets set — tap "Edit Budgets"'); return; }
@@ -1164,7 +1222,7 @@ function categoryTrendData(monthsBack=6){
   const totals = {};
   months.forEach(m=>{ Object.entries(categorySpend(m)).forEach(([cat,amt])=>{ totals[cat]=(totals[cat]||0)+amt; }); });
   const topCats = Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([cat])=>cat);
-  const monthLabels = months.map(m=>{ const [y,mo]=m.split('-'); return new Date(y,mo-1,1).toLocaleDateString('en-IN',{month:'short'}); });
+  const monthLabels = months.map(m=>{ const [y,mo]=m.split('-'); return new Date(y,mo-1,1).toLocaleDateString(curInfo().locale,{month:'short'}); });
   const datasets = topCats.map(cat=> ({ label: cat, data: months.map(m=> categorySpend(m)[cat]||0) }));
   return { monthLabels, datasets };
 }
@@ -1399,7 +1457,7 @@ function openApprove(id){
   const body = document.getElementById('approveBody');
   const cardOpts = state.cards.map(c=>`<option value="${c.id}" ${t.paymentMethod===c.id?'selected':''}>${escapeHTML(c.name)}</option>`).join('');
   const cardPaidOpts = state.cards.map(c=>`<option value="${c.id}" ${t.cardPaid===c.id?'selected':''}>${escapeHTML(c.name)}</option>`).join('') || '<option value="">No cards added yet</option>';
-  const paidByOpts = participantList().map(p=>`<option ${p===t.paidBy?'selected':''}>${escapeHTML(p)}</option>`).join('');
+  const paidByOpts = participantList().map(p=>`<option value="${escapeHTML(p)}" ${p===t.paidBy?'selected':''}>${escapeHTML(displayName(p))}</option>`).join('');
   const catOpts = state.categories.map(c=>`<option ${c===t.category?'selected':''}>${escapeHTML(c)}</option>`).join('');
   body.innerHTML = `
     <div class="row2">
@@ -1528,22 +1586,30 @@ document.getElementById('addRecurringBtn').onclick = ()=>{
   openGenModal(`<h3>Add Recurring Bill</h3>
     <div class="field"><label>Name</label><input type="text" id="rName" placeholder="Rent, Netflix, Car EMI..."></div>
     <div class="row2"><div class="field"><label>Amount (${curSym()})</label><input type="number" id="rAmount" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate" value="${todayISO()}"></div></div>
-    <div class="field"><label>Category (used when you mark it paid)</label><select id="rCategory">${catOpts}</select></div>
+    <div class="row2">
+      <div class="field"><label>Category (used when you mark it paid)</label><select id="rCategory">${catOpts}</select></div>
+      <div class="field"><label>Repeats</label><select id="rFrequency"><option value="weekly">Weekly</option><option value="monthly" selected>Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select></div>
+    </div>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="rSave">Add</button></div>`);
   document.getElementById('rSave').onclick = ()=>{
     const name = document.getElementById('rName').value.trim(); const amount = parseFloat(document.getElementById('rAmount').value);
     if(!name||!amount){ toast('Fill in name and amount'); return; }
-    state.recurring.push({ id: uid(), name, amount, dueDate: document.getElementById('rDate').value, category: document.getElementById('rCategory').value });
+    state.recurring.push({ id: uid(), name, amount, dueDate: document.getElementById('rDate').value, category: document.getElementById('rCategory').value, frequency: document.getElementById('rFrequency').value });
     saveState(); closeGen(); renderAll(); toast('Recurring bill added');
   };
 };
 function openEditRecurring(id){
   const r = state.recurring.find(x=>x.id===id); if(!r) return;
   const catOpts = state.categories.map(c=>`<option ${c===(r.category||'Misc')?'selected':''}>${escapeHTML(c)}</option>`).join('');
+  const freq = r.frequency || 'monthly';
+  const freqOpts = ['weekly','monthly','quarterly','yearly'].map(f=>`<option value="${f}" ${f===freq?'selected':''}>${f[0].toUpperCase()+f.slice(1)}</option>`).join('');
   openGenModal(`<h3>Edit Recurring Bill</h3>
     <div class="field"><label>Name</label><input type="text" id="rName2" value="${escapeHTML(r.name)}"></div>
     <div class="row2"><div class="field"><label>Amount (${curSym()})</label><input type="number" id="rAmount2" value="${r.amount}" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate2" value="${r.dueDate}"></div></div>
-    <div class="field"><label>Category (used when you mark it paid)</label><select id="rCategory2">${catOpts}</select></div>
+    <div class="row2">
+      <div class="field"><label>Category (used when you mark it paid)</label><select id="rCategory2">${catOpts}</select></div>
+      <div class="field"><label>Repeats</label><select id="rFrequency2">${freqOpts}</select></div>
+    </div>
     <button class="btn ghost small" id="rMarkPaid2" style="margin-bottom:14px;">Mark This Payment Done</button>
     <p class="sub" style="margin-bottom:14px;">EMI finished, or this bill ended? Just delete it below — nothing else needs to change.</p>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn ghost" style="color:var(--rust);" id="rDelete2">Delete / End</button><button class="btn" id="rSave2">Save</button></div>`);
@@ -1554,23 +1620,38 @@ function openEditRecurring(id){
     r.amount = parseFloat(document.getElementById('rAmount2').value)||r.amount;
     r.dueDate = document.getElementById('rDate2').value||r.dueDate;
     r.category = document.getElementById('rCategory2').value;
+    r.frequency = document.getElementById('rFrequency2').value;
     saveState(); closeGen(); renderAll(); toast('Recurring bill updated');
   };
 }
 // Adds calendar months safely -- e.g. 31 Jan + 1 month lands on 28/29 Feb
 // (the last real day of that month) instead of overflowing into March,
-// which is what naive Date arithmetic would otherwise do.
-function addOneMonth(dateStr){
+// which is what naive Date arithmetic would otherwise do. Also correctly
+// handles multi-month steps (quarterly=3, yearly=12) via the same logic.
+function addMonths(dateStr, n){
   const [y,m,d] = dateStr.split('-').map(Number);
-  let newY = y, newM = m+1;
-  if(newM>12){ newM=1; newY++; }
+  let newY = y, newM = m+n;
+  while(newM>12){ newM-=12; newY++; }
   const daysInNewMonth = new Date(newY, newM, 0).getDate();
   const newD = Math.min(d, daysInNewMonth);
   return `${newY}-${String(newM).padStart(2,'0')}-${String(newD).padStart(2,'0')}`;
 }
+function addDays(dateStr, n){
+  const d = new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+n);
+  return d.toISOString().slice(0,10);
+}
+function addInterval(dateStr, frequency){
+  switch(frequency){
+    case 'weekly': return addDays(dateStr, 7);
+    case 'quarterly': return addMonths(dateStr, 3);
+    case 'yearly': return addMonths(dateStr, 12);
+    default: return addMonths(dateStr, 1); // 'monthly', and safe fallback for old bills with no frequency set
+  }
+}
 function openMarkRecurringPaid(id){
   const r = state.recurring.find(x=>x.id===id); if(!r) return;
-  const nextDate = addOneMonth(r.dueDate);
+  const nextDate = addInterval(r.dueDate, r.frequency||'monthly');
   openGenModal(`<h3>Mark ${escapeHTML(r.name)} as Paid</h3>
     <p class="sub" style="margin-bottom:14px;">This logs the payment in your Ledger and moves the due date forward to <strong>${nextDate}</strong>.</p>
     <div class="row2">
@@ -1610,8 +1691,9 @@ document.getElementById('addCardBtn').onclick = ()=>{
 function openRecordCardPayment(cardId){
   const c = state.cards.find(x=>x.id===cardId); if(!c) return;
   const bal = cardBalance(c);
+  const nextDue = c.dueDate ? addMonths(c.dueDate, 1) : null;
   openGenModal(`<h3>Record ${escapeHTML(c.name)} Bill Payment</h3>
-    <p class="sub" style="margin-bottom:14px;">This logs a Credit Card transaction in your Ledger and reduces this card's balance by the amount paid.</p>
+    <p class="sub" style="margin-bottom:14px;">This logs a Credit Card transaction in your Ledger and reduces this card's balance by the amount paid.${nextDue ? ` It also moves this card's bill/due dates forward to next month's cycle (due <strong>${nextDue}</strong>).` : ''}</p>
     <div class="row2">
       <div class="field"><label>Amount Paid (${curSym()})</label><input type="number" id="cpAmount" value="${bal.toFixed(2)}" step="0.01"></div>
       <div class="field"><label>Date</label><input type="date" id="cpDate" value="${todayISO()}"></div>
@@ -1624,6 +1706,11 @@ function openRecordCardPayment(cardId){
       date: document.getElementById('cpDate').value||todayISO(), loggedAt: new Date().toISOString(),
       category: 'Credit Card', paidBy: 'Me', paymentMethod: 'bank', cardPaid: c.id,
       isShared: false, split: null, status: 'approved', source: 'manual' });
+    // A card's billing cycle advances every month regardless of how much
+    // was paid -- same real-world behavior as a statement date, which is
+    // why this always moves forward, not just on a full payoff.
+    if(c.dueDate) c.dueDate = addMonths(c.dueDate, 1);
+    if(c.billDate) c.billDate = addMonths(c.billDate, 1);
     saveState(); closeGen(); renderAll(); toast('Payment recorded — you can edit or delete it anytime from the Ledger');
   };
 }
@@ -1655,6 +1742,9 @@ document.getElementById('clearCardsBtn').onclick = ()=>{
 /* ---------------- SETTINGS ---------------- */
 document.getElementById('saveSettingsBtn').onclick = ()=>{
   state.sheetSyncUrl = document.getElementById('sheetUrlInput').value.trim();
+  state.myName = document.getElementById('myNameInput').value.trim();
+  const cycleDay = parseInt(document.getElementById('cycleStartDayInput').value, 10);
+  state.budgetCycleStartDay = (cycleDay>=1 && cycleDay<=28) ? cycleDay : 1;
   saveState(); renderAll(); toast('Settings saved');
 };
 document.getElementById('resyncBtn').onclick = ()=>{
@@ -1733,9 +1823,10 @@ document.getElementById('genOverlay').addEventListener('click', e=>{ if(e.target
 document.getElementById('exportBtn').onclick = ()=>{
   const rows = [['Date','Time','Merchant','Note','Category','Amount','PaidBy','PaymentMethod','Status','Shared','Shares(JSON)']];
   state.transactions.forEach(t=>{
-    const time = t.loggedAt ? new Date(t.loggedAt).toLocaleTimeString('en-IN') : '';
+    const time = t.loggedAt ? new Date(t.loggedAt).toLocaleTimeString(curInfo().locale) : '';
     const pm = t.paymentMethod==='bank'||!t.paymentMethod ? 'Bank/Cash' : (state.cards.find(c=>c.id===t.paymentMethod)?.name || 'Card');
-    rows.push([t.date, time, t.merchant, t.note||'', t.category, t.amount, t.paidBy, pm, t.status, t.isShared?'yes':'no', t.split?JSON.stringify(t.split.shares):'']);
+    const displayShares = t.split ? Object.fromEntries(Object.entries(t.split.shares).map(([p,amt])=>[displayName(p),amt])) : null;
+    rows.push([t.date, time, t.merchant, t.note||'', t.category, t.amount, displayName(t.paidBy), pm, t.status, t.isShared?'yes':'no', displayShares?JSON.stringify(displayShares):'']);
   });
   const csv = rows.map(r=> r.map(v=> `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], {type:'text/csv'});
