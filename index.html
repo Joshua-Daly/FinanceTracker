@@ -208,24 +208,24 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
       <div class="grid cols-3">
         <div class="card">
           <div class="label">Remaining Balance</div>
-          <div class="big amount" id="dashRunning">₹0.00</div>
+          <div class="big amount" id="dashRunning">0.00</div>
           <div class="sub">Balance minus everything approved so far</div>
         </div>
         <div class="card">
           <div class="label">Safe to Spend</div>
-          <div class="big brass-text amount" id="dashSafe">₹0.00</div>
+          <div class="big brass-text amount" id="dashSafe">0.00</div>
           <div class="sub">Remaining balance minus bills, EMIs &amp; card dues due in 30 days</div>
         </div>
         <div class="card">
           <div class="label">Net Owed (All People)</div>
-          <div class="big amount" id="dashOwed">₹0.00</div>
+          <div class="big amount" id="dashOwed">0.00</div>
           <div class="sub" id="dashOwedSub">See Who Owes Who for the breakdown</div>
         </div>
       </div>
       <div class="grid cols-3" style="margin-top:16px;">
         <div class="card">
           <div class="label">This Month · Cash In / Out</div>
-          <div class="big amount"><span id="dashIn" class="positive">₹0</span> <span style="color:var(--ink-faint);font-size:1.1rem;">/</span> <span id="dashOut" class="negative">₹0</span></div>
+          <div class="big amount"><span id="dashIn" class="positive">0</span> <span style="color:var(--ink-faint);font-size:1.1rem;">/</span> <span id="dashOut" class="negative">0</span></div>
           <div style="height:8px;background:var(--paper-line);border-radius:6px;overflow:hidden;margin-top:10px;"><div id="dashFlowBar" style="height:100%;background:var(--sage);width:50%;"></div></div>
         </div>
         <div class="card" style="grid-column: span 2;">
@@ -272,7 +272,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
       <div class="grid cols-2">
         <div class="card">
           <div class="label">Net Owed (All People)</div>
-          <div class="big amount" id="owedBig">₹0.00</div>
+          <div class="big amount" id="owedBig">0.00</div>
           <div class="sub" id="owedSub2">Positive = owed to you overall</div>
           <button class="btn" style="margin-top:14px;" id="settleBtn">Settle Up</button>
         </div>
@@ -296,9 +296,9 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
         </div>
       </div>
       <div class="grid cols-3">
-        <div class="card"><div class="label">Cash In</div><div class="big positive amount" id="repIn">₹0</div></div>
-        <div class="card"><div class="label">Cash Out</div><div class="big negative amount" id="repOut">₹0</div></div>
-        <div class="card"><div class="label">Net</div><div class="big amount" id="repNet">₹0</div></div>
+        <div class="card"><div class="label">Cash In</div><div class="big positive amount" id="repIn">0</div></div>
+        <div class="card"><div class="label">Cash Out</div><div class="big negative amount" id="repOut">0</div></div>
+        <div class="card"><div class="label">Net</div><div class="big amount" id="repNet">0</div></div>
       </div>
       <div class="grid cols-2" style="margin-top:18px;">
         <div class="card"><div class="label">Category Breakdown</div><table class="rep" id="repCatTable"><thead><tr><th>Category</th><th>Spent</th><th>Share</th></tr></thead><tbody></tbody></table></div>
@@ -358,13 +358,15 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
         <div class="card">
           <div class="label">Google Sheet Sync URL <span style="color:var(--ink-faint); text-transform:none;">(Apps Script Web App link)</span></div>
           <div class="field" style="margin-top:8px;"><input type="text" id="sheetUrlInput" placeholder="https://script.google.com/macros/s/.../exec"></div>
+          <div class="label" style="margin-top:14px;">Currency</div>
+          <div class="field" style="margin-top:8px;"><select id="currencySelect"></select></div>
           <button class="btn" id="saveSettingsBtn">Save Settings</button>
         </div>
         <div class="card">
           <div class="label">Bank Balance</div>
           <p class="sub" style="margin-bottom:10px;">Set this to your real balance and today's date any time you want to resync — everything approved from that date onward is tracked automatically after that.</p>
           <div class="row2">
-            <div class="field"><label>Current Balance (₹)</label><input type="number" id="balanceInput" placeholder="0.00"></div>
+            <div class="field"><label id="balanceLabelCur">Current Balance (₹)</label><input type="number" id="balanceInput" placeholder="0.00"></div>
             <div class="field"><label>As Of</label><input type="date" id="balanceAsOfInput"></div>
           </div>
           <button class="btn ghost" id="resyncBtn">Resync Balance</button>
@@ -388,7 +390,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
   <div class="modal">
     <h3>Add Transaction</h3>
     <div class="row2">
-      <div class="field"><label>Amount (₹)</label><input type="number" id="txAmount" placeholder="0.00" step="0.01"></div>
+      <div class="field"><label id="txAmountLabelCur">Amount (₹)</label><input type="number" id="txAmount" placeholder="0.00" step="0.01"></div>
       <div class="field"><label>Date</label><input type="date" id="txDate"></div>
     </div>
     <div class="field"><label>Merchant</label><input type="text" id="txMerchant" placeholder="e.g. Big Bazaar"></div>
@@ -418,12 +420,27 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
 <script>
 const DEFAULT_CATEGORIES = ["Shared","Commute","Food","Shopping","Misc","Social","Personal","Investments","Credit Card","Income"];
 const PROTECTED_CATEGORIES = ["Income","Credit Card"];
-const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '', merchantMemory: {} };
+// JPY intentionally has 0 decimals -- yen doesn't use subunits day-to-day,
+// so showing "¥500.00" would look wrong to anyone actually using it.
+const CURRENCIES = {
+  INR: { symbol: '₹', locale: 'en-IN', decimals: 2, label: 'Indian Rupee (₹)' },
+  USD: { symbol: '$', locale: 'en-US', decimals: 2, label: 'US Dollar ($)' },
+  EUR: { symbol: '€', locale: 'de-DE', decimals: 2, label: 'Euro (€)' },
+  GBP: { symbol: '£', locale: 'en-GB', decimals: 2, label: 'British Pound (£)' },
+  AUD: { symbol: '$', locale: 'en-AU', decimals: 2, label: 'Australian Dollar ($)' },
+  CAD: { symbol: '$', locale: 'en-CA', decimals: 2, label: 'Canadian Dollar ($)' },
+  SGD: { symbol: '$', locale: 'en-SG', decimals: 2, label: 'Singapore Dollar ($)' },
+  JPY: { symbol: '¥', locale: 'ja-JP', decimals: 0, label: 'Japanese Yen (¥)' }
+};
+function curInfo(){ return CURRENCIES[state.currency] || CURRENCIES.INR; }
+function curSym(){ return curInfo().symbol; }
+
+const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR' };
 let currentEditTx = null;
 let currentSplitType = 'percent';
 
 function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.style.display='block'; clearTimeout(t._h); t._h = setTimeout(()=> t.style.display='none', 2400); }
-function fmt(n){ const abs = Math.abs(n); const str = abs.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}); return (n<0?'-':'') + '₹' + str; }
+function fmt(n){ const cur = curInfo(); const abs = Math.abs(n); const str = abs.toLocaleString(cur.locale, {minimumFractionDigits:cur.decimals, maximumFractionDigits:cur.decimals}); return (n<0?'-':'') + cur.symbol + str; }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function escapeHTML(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -451,13 +468,15 @@ function loadState(){
   if(!state.categories || state.categories.length===0) state.categories = [...DEFAULT_CATEGORIES];
   if(!state.people || state.people.length===0){ state.people = state.partner ? [state.partner] : []; }
   if(!state.merchantMemory) state.merchantMemory = {};
+  if(!state.currency || !CURRENCIES[state.currency]) state.currency = 'INR';
 }
 function saveState(){
   try{
     localStorage.setItem('tallyup-data', JSON.stringify({
       transactions: state.transactions, recurring: state.recurring, cards: state.cards,
       budgets: state.budgets, settlements: state.settlements, balance: state.balance, balanceAsOf: state.balanceAsOf,
-      people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl, merchantMemory: state.merchantMemory
+      people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl, merchantMemory: state.merchantMemory,
+      currency: state.currency
     }));
   }catch(e){ console.error('save failed', e); toast('Could not save to this browser'); }
 }
@@ -543,7 +562,7 @@ function renderWizardStep2(){
     <h3>What's your starting balance?</h3>
     <p class="sub" style="margin-bottom:14px;">Optional, but this makes "Safe to Spend" accurate right away. You can resync this anytime in Settings.</p>
     <div class="row2">
-      <div class="field"><label>Current Balance (₹)</label><input type="number" id="wizardBalance" placeholder="0.00"></div>
+      <div class="field"><label>Current Balance (${curSym()})</label><input type="number" id="wizardBalance" placeholder="0.00"></div>
       <div class="field"><label>As Of</label><input type="date" id="wizardBalanceDate" value="${todayISO()}"></div>
     </div>
     <div class="modalActions"><button class="btn ghost" id="wizardSkip2">Skip</button><button class="btn" id="wizardFinish">Finish Setup</button></div>`;
@@ -685,7 +704,7 @@ function splitParticipantRowsHTML(prefix, existingShares, splitType){
     const manualAttr = (checked && splitType==='exact') ? 'data-manual="true"' : '';
     return `<div class="splitPersonRow">
       <label><input type="checkbox" class="${prefix}SplitInclude" data-person="${escapeHTML(name)}" ${checked?'checked':''}><span>${escapeHTML(name)}</span></label>
-      <input type="number" class="${prefix}SplitValue" data-person="${escapeHTML(name)}" ${manualAttr} step="0.01" placeholder="${splitType==='exact'?'₹':'%'}" style="display:${checked?'inline-block':'none'};" value="${val}">
+      <input type="number" class="${prefix}SplitValue" data-person="${escapeHTML(name)}" ${manualAttr} step="0.01" placeholder="${splitType==='exact'?curSym():'%'}" style="display:${checked?'inline-block':'none'};" value="${val}">
     </div>`;
   }).join('');
 }
@@ -787,8 +806,27 @@ function renderAll(){
   populatePaymentDropdowns();
   populateCategoryDropdown('txCategory');
   populatePaidByDropdown('txPaidBy');
+  populateCurrencySelect();
+  updateCurrencyLabels();
   if(!document.getElementById('reportMonth').value) document.getElementById('reportMonth').value = thisMonth();
 }
+function populateCurrencySelect(){
+  const sel = document.getElementById('currencySelect');
+  sel.innerHTML = Object.entries(CURRENCIES).map(([code,c])=>`<option value="${code}" ${code===state.currency?'selected':''}>${escapeHTML(c.label)}</option>`).join('');
+}
+// Keeps the two static (non-regenerated) labels that mention a currency
+// symbol in sync -- everywhere else the symbol lives inside a template
+// literal that's already rebuilt fresh via curSym() every time its modal
+// opens, so those never go stale in the first place.
+function updateCurrencyLabels(){
+  const sym = curSym();
+  const b = document.getElementById('balanceLabelCur'); if(b) b.textContent = `Current Balance (${sym})`;
+  const t = document.getElementById('txAmountLabelCur'); if(t) t.textContent = `Amount (${sym})`;
+}
+document.getElementById('currencySelect').addEventListener('change', (e)=>{
+  state.currency = e.target.value;
+  saveState(); renderAll(); toast(`Currency set to ${curInfo().label}`);
+});
 function populatePaymentDropdowns(){
   const opts = '<option value="bank">Bank / Cash</option>' + state.cards.map(c=>`<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('');
   const cardOnly = state.cards.map(c=>`<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('') || '<option value="">No cards added yet</option>';
@@ -1310,7 +1348,7 @@ document.querySelectorAll('#splitBox .chip').forEach(chip=>{
   chip.onclick = ()=>{
     document.querySelectorAll('#splitBox .chip').forEach(c=>c.classList.remove('active'));
     chip.classList.add('active'); currentSplitType = chip.dataset.split;
-    document.querySelectorAll('#txSplitParticipants input.txSplitValue').forEach(inp=>{ inp.placeholder = currentSplitType==='exact'?'₹':'%'; inp.value=''; delete inp.dataset.manual; });
+    document.querySelectorAll('#txSplitParticipants input.txSplitValue').forEach(inp=>{ inp.placeholder = currentSplitType==='exact'?curSym():'%'; inp.value=''; delete inp.dataset.manual; });
     updateSplitPreview('tx','txSplitParticipants','txAmount','txSplitPreview');
   };
 });
@@ -1365,7 +1403,7 @@ function openApprove(id){
   const catOpts = state.categories.map(c=>`<option ${c===t.category?'selected':''}>${escapeHTML(c)}</option>`).join('');
   body.innerHTML = `
     <div class="row2">
-      <div class="field"><label>Amount (₹)</label><input type="number" id="apAmount" value="${t.amount}" step="0.01"></div>
+      <div class="field"><label>Amount (${curSym()})</label><input type="number" id="apAmount" value="${t.amount}" step="0.01"></div>
       <div class="field"><label>Date</label><input type="date" id="apDate" value="${defaultToToday ? todayISO() : t.date}"></div>
     </div>
     <p class="sub" id="apDateHint" style="margin-top:-10px; margin-bottom:14px; display:${defaultToToday?'block':'none'};">Defaulted to today — change this if the transaction actually happened earlier.</p>
@@ -1397,7 +1435,7 @@ function openApprove(id){
     chip.onclick = ()=>{
       document.querySelectorAll('#apSplitBox .chip').forEach(c=>c.classList.remove('active'));
       chip.classList.add('active');
-      document.querySelectorAll('#apSplitParticipants input.apSplitValue').forEach(inp=>{ inp.placeholder = chip.dataset.split==='exact'?'₹':'%'; inp.value=''; delete inp.dataset.manual; });
+      document.querySelectorAll('#apSplitParticipants input.apSplitValue').forEach(inp=>{ inp.placeholder = chip.dataset.split==='exact'?curSym():'%'; inp.value=''; delete inp.dataset.manual; });
       updateSplitPreview('ap','apSplitParticipants','apAmount','apSplitPreview');
     };
   });
@@ -1489,7 +1527,7 @@ document.getElementById('addRecurringBtn').onclick = ()=>{
   const catOpts = state.categories.map(c=>`<option ${c==='Misc'?'selected':''}>${escapeHTML(c)}</option>`).join('');
   openGenModal(`<h3>Add Recurring Bill</h3>
     <div class="field"><label>Name</label><input type="text" id="rName" placeholder="Rent, Netflix, Car EMI..."></div>
-    <div class="row2"><div class="field"><label>Amount (₹)</label><input type="number" id="rAmount" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate" value="${todayISO()}"></div></div>
+    <div class="row2"><div class="field"><label>Amount (${curSym()})</label><input type="number" id="rAmount" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate" value="${todayISO()}"></div></div>
     <div class="field"><label>Category (used when you mark it paid)</label><select id="rCategory">${catOpts}</select></div>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="rSave">Add</button></div>`);
   document.getElementById('rSave').onclick = ()=>{
@@ -1504,7 +1542,7 @@ function openEditRecurring(id){
   const catOpts = state.categories.map(c=>`<option ${c===(r.category||'Misc')?'selected':''}>${escapeHTML(c)}</option>`).join('');
   openGenModal(`<h3>Edit Recurring Bill</h3>
     <div class="field"><label>Name</label><input type="text" id="rName2" value="${escapeHTML(r.name)}"></div>
-    <div class="row2"><div class="field"><label>Amount (₹)</label><input type="number" id="rAmount2" value="${r.amount}" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate2" value="${r.dueDate}"></div></div>
+    <div class="row2"><div class="field"><label>Amount (${curSym()})</label><input type="number" id="rAmount2" value="${r.amount}" step="0.01"></div><div class="field"><label>Next Due Date</label><input type="date" id="rDate2" value="${r.dueDate}"></div></div>
     <div class="field"><label>Category (used when you mark it paid)</label><select id="rCategory2">${catOpts}</select></div>
     <button class="btn ghost small" id="rMarkPaid2" style="margin-bottom:14px;">Mark This Payment Done</button>
     <p class="sub" style="margin-bottom:14px;">EMI finished, or this bill ended? Just delete it below — nothing else needs to change.</p>
@@ -1536,7 +1574,7 @@ function openMarkRecurringPaid(id){
   openGenModal(`<h3>Mark ${escapeHTML(r.name)} as Paid</h3>
     <p class="sub" style="margin-bottom:14px;">This logs the payment in your Ledger and moves the due date forward to <strong>${nextDate}</strong>.</p>
     <div class="row2">
-      <div class="field"><label>Amount Paid (₹)</label><input type="number" id="mpAmount" value="${r.amount}" step="0.01"></div>
+      <div class="field"><label>Amount Paid (${curSym()})</label><input type="number" id="mpAmount" value="${r.amount}" step="0.01"></div>
       <div class="field"><label>Payment Date</label><input type="date" id="mpDate" value="${r.dueDate}"></div>
     </div>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="mpConfirm">Mark Paid</button></div>`);
@@ -1559,7 +1597,7 @@ document.getElementById('clearRecurringBtn').onclick = ()=>{
 document.getElementById('addCardBtn').onclick = ()=>{
   openGenModal(`<h3>Add Credit Card</h3>
     <div class="field"><label>Card Name</label><input type="text" id="cName" placeholder="e.g. HDFC Pixel Play"></div>
-    <div class="field"><label>Current Balance Owed (₹)</label><input type="number" id="cBalance" step="0.01"></div>
+    <div class="field"><label>Current Balance Owed (${curSym()})</label><input type="number" id="cBalance" step="0.01"></div>
     <div class="row2"><div class="field"><label>Bill Generation Date</label><input type="date" id="cBillDate"></div><div class="field"><label>Payment Due Date</label><input type="date" id="cDueDate"></div></div>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="cSave">Add</button></div>`);
   document.getElementById('cSave').onclick = ()=>{
@@ -1575,7 +1613,7 @@ function openRecordCardPayment(cardId){
   openGenModal(`<h3>Record ${escapeHTML(c.name)} Bill Payment</h3>
     <p class="sub" style="margin-bottom:14px;">This logs a Credit Card transaction in your Ledger and reduces this card's balance by the amount paid.</p>
     <div class="row2">
-      <div class="field"><label>Amount Paid (₹)</label><input type="number" id="cpAmount" value="${bal.toFixed(2)}" step="0.01"></div>
+      <div class="field"><label>Amount Paid (${curSym()})</label><input type="number" id="cpAmount" value="${bal.toFixed(2)}" step="0.01"></div>
       <div class="field"><label>Date</label><input type="date" id="cpDate" value="${todayISO()}"></div>
     </div>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="cpConfirm">Record Payment</button></div>`);
@@ -1593,7 +1631,7 @@ function openEditCard(id){
   const c = state.cards.find(x=>x.id===id); if(!c) return;
   openGenModal(`<h3>Edit Credit Card</h3>
     <div class="field"><label>Card Name</label><input type="text" id="cName2" value="${escapeHTML(c.name)}"></div>
-    <div class="field"><label>Starting Balance Owed (₹)</label><input type="number" id="cBalance2" value="${c.openingBalance}" step="0.01"></div>
+    <div class="field"><label>Starting Balance Owed (${curSym()})</label><input type="number" id="cBalance2" value="${c.openingBalance}" step="0.01"></div>
     <div class="row2"><div class="field"><label>Bill Generation Date</label><input type="date" id="cBillDate2" value="${c.billDate||''}"></div><div class="field"><label>Payment Due Date</label><input type="date" id="cDueDate2" value="${c.dueDate||''}"></div></div>
     <p class="sub" style="margin-bottom:14px;">Current computed balance (starting balance + card spend − bill payments): <strong>${fmt(cardBalance(c))}</strong></p>
     <button class="btn ghost small" id="cRecordPayment" style="margin-bottom:14px;">Record Bill Payment</button>
