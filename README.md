@@ -94,30 +94,42 @@ This is a static site — one HTML file with everything (styling, logic, charts)
 
 ## Setting up Gmail auto-sync (optional)
 
-This lets a free script running in your own Google account scan your Gmail for bank transaction alerts and feed them into the app's "Pending" tab for you to review and approve. It's entirely optional — the app works fine with manual entry alone.
+This lets a free script running in your own Google account scan your Gmail for bank transaction alerts, extract the amount/merchant/direction with Google's Gemini API, and feed them into the app's "Pending" tab for you to review and approve. It's entirely optional — the app works fine with manual entry alone.
 
-### 1. Create your Google Sheet
+**Why Gemini instead of hand-written patterns:** every bank writes its alert emails differently, so a purely pattern-matching parser needs custom rules per bank, hand-tuned by reading real emails. Gemini reads the email like a person would, so one generic setup works across almost any bank's wording without you writing anything bank-specific. The one thing it's deliberately *not* asked for is the date/time — that comes straight from Gmail's own message metadata instead, which is always accurate and can't be misread the way a model occasionally can with free-text dates.
 
-Make a new Google Sheet with two tabs:
+### 1. Get the template Sheet
 
-**Tab "Pending"** — header row:
+**Template:** https://docs.google.com/spreadsheets/d/10gD1YTZS3-N_Np9GrsI3CM4GyP-HfCNzDNq2TZPOfck/edit?usp=sharing
+
+Open that link and **File → Make a Copy**. This gives you your own independent Sheet with the parser script already bound to it — no separate file to paste in, no tabs to build by hand. The copy includes two tabs already set up:
+
+**"Pending"** — header row:
 ```
-Date | Merchant | Amount | Direction | Note | Status | MessageId | ThreadId
+Date | Time | Merchant | Amount | Direction | Note | Status | MessageId | ThreadId
 ```
 
-**Tab "Balances"** (optional, only used if your bank's emails mention your running balance) — header row:
+**"Balances"** (optional, only used if your bank's emails mention your running balance) — header row:
 ```
 Timestamp | AvailableBalance
 ```
 
-### 2. Set up the script
+### 2. Set up the script (in your copy, not the template)
 
-1. In your Sheet, go to **Extensions → Apps Script**
-2. Delete the placeholder code and paste in [`EmailParser.template.gs`](./EmailParser.template.gs) from this repo
-3. Replace `SHEET_ID` with your Sheet's ID (the long string in its URL, between `/d/` and `/edit`)
-4. **This is the part that needs your attention:** the template has example patterns for a generic bank alert. Your bank's emails are worded differently, so open a real transaction alert email, note the exact wording, and update the regex patterns to match — the comments in the template walk through exactly how. Use a broad partial sender match (e.g. `hdfcbank`, not a full exact address) — one wrong character in an exact address means the search silently finds nothing, with no error anywhere.
-5. Run `setupTrigger` once (Google will ask you to authorize Gmail + Sheets access — this is normal, and it only ever runs under your own account)
-6. Run `debugScan` any time you want to check what the script is finding without writing anything to your sheet
+1. In your copied Sheet, go to **Extensions → Apps Script** — the parser code is already there
+2. Get a free API key: **aistudio.google.com → "Get API Key"** (one button, no credit card), and paste it into `GEMINI_API_KEY` at the top of the script
+3. Adjust `BANK_QUERIES` to your bank's sender domain — use a broad partial match (e.g. `hdfcbank`, not a full exact address like `alerts@hdfcbank.net`). One wrong character in an exact address means Gmail's search silently finds nothing, with no error anywhere; a broad match can't fail that way.
+4. Run `setupTrigger` once (Google will ask you to authorize Gmail + Sheets + external requests — this is normal, and it only ever runs under your own account). This only *schedules* the scan for every 15 minutes going forward — it doesn't run it immediately.
+5. To actually populate the sheet right now rather than waiting, run `scanInboxForTransactions` directly from the function dropdown.
+6. Run `debugScan` any time you want to preview what it's finding and what Gemini extracted, without writing anything to your sheet.
+
+**A trap worth knowing about:** once deployed (step 3 below), *any* real HTTP request to your Web App's URL runs `doGet`, which marks matching rows "Synced" as a side effect — including a request you didn't mean to make. Two ways this catches people out:
+- **Never paste the deployed URL into a messaging app** to send it to yourself or someone else — WhatsApp, Telegram, iMessage and similar apps automatically fetch a URL to build a link preview, which silently triggers a real sync and consumes your Pending queue.
+- **Don't test `doGet` by running it directly** in the Apps Script editor — that has the exact same side effect. Use `debugDoGetDryRun` instead; it mirrors the same read logic but never writes anything, so it's always safe to run.
+
+If you ever end up with rows stuck as "Synced" that never actually reached the app, just edit those Status cells back to "Pending" in the Sheet and sync again for real, from inside the app.
+
+**On sync frequency:** Gemini is only ever called once per genuinely new matching email, not once per trigger run — checking every 15 minutes and finding nothing new costs zero API calls, the same as checking hourly. There's no need to slow the trigger down to save on usage; what actually drives usage is how many real bank emails arrive per day, which polling frequency doesn't change.
 
 ### 3. Connect it to the app
 
@@ -125,19 +137,22 @@ Timestamp | AvailableBalance
 2. Execute as: **Me** · Who has access: **Anyone with the link**
 3. Click Deploy, copy the URL ending in `/exec`
 4. In the app, go to **Settings → Google Sheet Sync URL**, paste it in, save
-5. Use **"Sync from Gmail"** on the Pending tab whenever you want to pull in new transactions
+5. Use **"Sync from Gmail"** on the Pending tab whenever you want to pull in new transactions — this is the only place that should ever call the real URL
+
+If you ever edit the script again later, remember that redeploying an *existing* deployment requires **Manage deployments → edit (pencil icon) → Version: New version → Deploy** — just saving the code in the editor does not update what's already live at your URL.
 
 ## Security & privacy notes
 
 - The PIN is a **screen lock, not encryption** — it stops someone picking up your unlocked phone from casually browsing your ledger, not a determined attacker with full access to your device.
 - All financial data stays in your browser's local storage. There's no account, no cloud database, nothing to breach remotely.
 - If you set up Gmail sync, the script has read access to your Gmail — that's normal for what it does, runs entirely inside your own Google account under Google's own sandboxing, and nobody else (including this project) ever sees it.
+- The Gmail parser sends matching email text to Google's Gemini API for extraction, under your own API key. This is a genuine data flow that didn't exist in a purely pattern-matching approach — still entirely under your own Google account, never touching this project or anyone else, but worth knowing rather than glossing over.
 
 ## Known limitations
 
 - **No live sync between people's phones.** Each person's app is independent. Reconciling shared balances across devices is a manual step (CSV/email export), not automatic.
 - **Balances are tracked from your own perspective only.** If two *other* people split something between themselves, that specific debt isn't tracked — this is a personal ledger, not a full multi-party settlement graph like Splitwise.
-- **Email parsing is pattern-matching, not AI.** It looks for specific wording your bank uses. If your bank changes its email template, the patterns will need updating.
+- **Gemini's free tier has usage limits that can change.** They're generous enough for personal use, but if you somehow exceed them for a day, syncing simply pauses until the quota resets — nothing breaks, no data is lost, since unprocessed emails are never marked as handled.
 - **No background push notifications.** Browsers don't reliably support always-on background syncing for installed web apps; you sync manually with the button, or when you notice a bank alert come in.
 
 ## Running your own copy
