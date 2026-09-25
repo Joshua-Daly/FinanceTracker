@@ -206,7 +206,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
     <button data-view="owed">Who Owes Who</button>
     <button data-view="reports">Reports</button>
     <button data-view="budgets">Budgets</button>
-    <button data-view="recurring">Recurring &amp; Cards</button>
+    <button data-view="recurring">Accounts &amp; Cards</button>
     <button data-view="settings">Settings</button>
   </nav>
 
@@ -217,6 +217,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
           <div class="label">Remaining Balance</div>
           <div class="big amount" id="dashRunning">0.00</div>
           <div class="sub">Balance minus everything approved so far</div>
+          <div id="dashAccountBreakdown" style="margin-top:8px;"></div>
         </div>
         <div class="card">
           <div class="label">Safe to Spend</div>
@@ -328,6 +329,14 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
     </section>
 
     <section class="view" id="view-recurring">
+      <div class="section-title"><h2>Bank Accounts</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn ghost small" id="addAccountBtn">+ Add Account</button>
+          <button class="btn ghost small" id="clearAccountsBtn" style="color:var(--rust);">Clear All</button>
+        </div>
+      </div>
+      <p class="sub" style="margin-bottom:8px;">Tap any account to edit its balance or remove it. Every transaction picks which account it came from.</p>
+      <div id="accountList"></div>
       <div class="section-title"><h2>Fixed Expenses &amp; EMIs</h2>
         <div style="display:flex; gap:8px;">
           <button class="btn ghost small" id="addRecurringBtn">+ Add Recurring</button>
@@ -372,14 +381,7 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
           <button class="btn" id="saveSettingsBtn">Save Settings</button>
         </div>
         <div class="card">
-          <div class="label">Bank Balance</div>
-          <p class="sub" style="margin-bottom:10px;">Set this to your real balance and today's date any time you want to resync — everything approved from that date onward is tracked automatically after that.</p>
-          <div class="row2">
-            <div class="field"><label id="balanceLabelCur">Current Balance (₹)</label><input type="number" id="balanceInput" placeholder="0.00"></div>
-            <div class="field"><label>As Of</label><input type="date" id="balanceAsOfInput"></div>
-          </div>
-          <button class="btn ghost" id="resyncBtn">Resync Balance</button>
-          <div class="label" style="margin-top:16px;">Budget Cycle Start Day <span style="color:var(--ink-faint); text-transform:none;">(1 = calendar month, default)</span></div>
+          <div class="label">Budget Cycle Start Day <span style="color:var(--ink-faint); text-transform:none;">(1 = calendar month, default)</span></div>
           <p class="sub" style="margin-bottom:10px;">Only affects the Dashboard's "current period" view (budget pace, category chart, cash in/out) — Reports always stays on real calendar months.</p>
           <div class="field"><input type="number" id="cycleStartDayInput" min="1" max="28" placeholder="1"></div>
         </div>
@@ -409,8 +411,9 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
     <div id="recentMerchantChips" style="margin:-6px 0 14px 0;"></div>
     <div class="field"><label>What was this for?</label><textarea id="txNote" placeholder="e.g. Weekly groceries, movie tickets with friends..."></textarea></div>
     <div class="field"><label>Category</label><select id="txCategory"></select></div>
-    <div class="field" id="txPaidWithWrap"><label>Paid With</label><select id="txPaidWith"><option value="bank">Bank / Cash</option></select></div>
+    <div class="field" id="txPaidWithWrap"><label>Paid With</label><select id="txPaidWith"></select></div>
     <div class="field" id="txCardPaidWrap" style="display:none;"><label>Which card is this paying?</label><select id="txCardPaid"></select></div>
+    <div class="field" id="txPayFromAccountWrap" style="display:none;"><label>Pay from which account?</label><select id="txPayFromAccount"></select></div>
     <div class="field"><label>Paid By</label><select id="txPaidBy"></select></div>
     <div class="toggle"><input type="checkbox" id="txShared"><label for="txShared" style="margin:0;text-transform:none;font-size:.85rem;color:var(--ink);">This is a shared expense</label></div>
     <div class="splitBox" id="splitBox">
@@ -452,7 +455,7 @@ function curSym(){ return curInfo().symbol; }
 // what's rendered to the user changes.
 function displayName(name){ return name==='Me' ? (state.myName||'Me') : name; }
 
-const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR', myName: '', budgetCycleStartDay: 1 };
+const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, bankAccounts: [], people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR', myName: '', budgetCycleStartDay: 1 };
 let currentEditTx = null;
 let currentSplitType = 'percent';
 
@@ -488,12 +491,26 @@ function loadState(){
   if(!state.currency || !CURRENCIES[state.currency]) state.currency = 'INR';
   if(!state.myName) state.myName = '';
   if(!state.budgetCycleStartDay || state.budgetCycleStartDay<1 || state.budgetCycleStartDay>28) state.budgetCycleStartDay = 1;
+  // Migrates the old single implicit "Bank/Cash" balance into a real,
+  // named first account -- runs once, ever, and only if bankAccounts
+  // doesn't already exist. Existing numbers don't move by a single
+  // rupee: the old state.balance/balanceAsOf become this account's
+  // opening balance/date, and every transaction that used to say
+  // paymentMethod:'bank' (the old generic bucket) gets pointed at this
+  // account's real id instead, so nothing goes visibly missing.
+  if(!state.bankAccounts || state.bankAccounts.length===0){
+    const mainId = uid();
+    state.bankAccounts = [{ id: mainId, name: 'Main Account', openingBalance: state.balance||0, balanceAsOf: state.balanceAsOf||todayISO() }];
+    state.transactions.forEach(t=>{
+      if(!t.paymentMethod || t.paymentMethod==='bank') t.paymentMethod = mainId;
+    });
+  }
 }
 function saveState(){
   try{
     localStorage.setItem('tallyup-data', JSON.stringify({
       transactions: state.transactions, recurring: state.recurring, cards: state.cards,
-      budgets: state.budgets, settlements: state.settlements, balance: state.balance, balanceAsOf: state.balanceAsOf,
+      budgets: state.budgets, settlements: state.settlements, bankAccounts: state.bankAccounts,
       people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl, merchantMemory: state.merchantMemory,
       currency: state.currency, myName: state.myName, budgetCycleStartDay: state.budgetCycleStartDay
     }));
@@ -588,7 +605,7 @@ function renderWizardStep2(){
   document.getElementById('wizardSkip2').onclick = finishWizard;
   document.getElementById('wizardFinish').onclick = ()=>{
     const bal = parseFloat(document.getElementById('wizardBalance').value);
-    if(!isNaN(bal)){ state.balance = bal; state.balanceAsOf = document.getElementById('wizardBalanceDate').value || todayISO(); }
+    if(!isNaN(bal) && state.bankAccounts[0]){ state.bankAccounts[0].openingBalance = bal; state.bankAccounts[0].balanceAsOf = document.getElementById('wizardBalanceDate').value || todayISO(); }
     finishWizard();
   };
 }
@@ -680,24 +697,36 @@ function cashInOut(monthStr){
   return {inflow, outflow};
 }
 // Running balance reflects cash actually moving through YOUR bank account.
-// A transaction only affects it if paidBy is "Me" -- if someone else paid
-// (even for a shared expense split with you), no money left your account
-// yet, so it shouldn't move your balance; that debt lives in Who Owes Who
-// instead, and only actually hits your balance when you settle up.
-function runningBalance(){
-  let bal = Number(state.balance)||0;
-  const baseline = state.balanceAsOf || '1970-01-01';
+// A transaction only affects an account if paidBy is "Me" -- if someone
+// else paid (even for a shared expense split with you), no money left
+// your account yet, so it shouldn't move any balance; that debt lives in
+// Who Owes Who instead, and only actually hits an account when you settle up.
+function accountBalance(account){
+  let bal = Number(account.openingBalance)||0;
+  const baseline = account.balanceAsOf || '1970-01-01';
   approvedTx().forEach(t=>{
     if(t.date < baseline) return;
     if((t.paidBy||'Me').toLowerCase() !== 'me') return; // someone else's money, not yours
-    if(t.paymentMethod && t.paymentMethod !== 'bank') return; // charged to a card, not paid from bank yet
+    if(t.paymentMethod !== account.id) return; // only transactions actually charged to THIS account
     if(t.category==='Income') bal += t.amount; else bal -= t.amount;
   });
-  state.settlements.forEach(s=>{
-    if(s.date && s.date < baseline) return;
-    bal += -s.delta; // mirror of the debt-balance delta: paying down what you owe leaves your account, being paid back enters it
-  });
   return bal;
+}
+// Total across every account, plus settlements. Settlements represent
+// money that changed hands directly with another person, not tied to any
+// one tracked account -- applied once to the combined total rather than
+// asking "which account did you pay this from" on every single
+// settlement, which would be a lot of friction for something that
+// happens occasionally, not daily.
+function runningBalance(){
+  const accountsTotal = (state.bankAccounts||[]).reduce((sum,a)=> sum + accountBalance(a), 0);
+  const earliestBaseline = (state.bankAccounts||[]).reduce((min,a)=> a.balanceAsOf && (!min || a.balanceAsOf<min) ? a.balanceAsOf : min, null) || '1970-01-01';
+  let settleAdj = 0;
+  state.settlements.forEach(s=>{
+    if(s.date && s.date < earliestBaseline) return;
+    settleAdj += -s.delta; // mirror of the debt-balance delta: paying down what you owe leaves your account, being paid back enters it
+  });
+  return accountsTotal + settleAdj;
 }
 // A card's outstanding balance, same logic: only charges YOU made ("Me")
 // affect a card that's registered as yours.
@@ -879,10 +908,8 @@ function getSplitShares(prefix, containerId, amountInputId){
 let chartRef = null;
 function renderAll(){
   document.getElementById('partnerTag').textContent = 'shared with ' + (state.people.length ? state.people.join(', ') : '—');
-  renderDashboard(); renderPending(); renderLedger(); renderOwed(); renderBudgets(); renderRecurring(); renderSettingsChips();
+  renderDashboard(); renderPending(); renderLedger(); renderOwed(); renderBudgets(); renderAccounts(); renderRecurring(); renderSettingsChips();
   document.getElementById('sheetUrlInput').value = state.sheetSyncUrl||'';
-  document.getElementById('balanceInput').value = state.balance||0;
-  document.getElementById('balanceAsOfInput').value = state.balanceAsOf||todayISO();
   document.getElementById('myNameInput').value = state.myName||'';
   document.getElementById('cycleStartDayInput').value = state.budgetCycleStartDay||1;
   populatePaymentDropdowns();
@@ -902,7 +929,6 @@ function populateCurrencySelect(){
 // opens, so those never go stale in the first place.
 function updateCurrencyLabels(){
   const sym = curSym();
-  const b = document.getElementById('balanceLabelCur'); if(b) b.textContent = `Current Balance (${sym})`;
   const t = document.getElementById('txAmountLabelCur'); if(t) t.textContent = `Amount (${sym})`;
 }
 document.getElementById('currencySelect').addEventListener('change', (e)=>{
@@ -910,10 +936,14 @@ document.getElementById('currencySelect').addEventListener('change', (e)=>{
   saveState(); renderAll(); toast(`Currency set to ${curInfo().label}`);
 });
 function populatePaymentDropdowns(){
-  const opts = '<option value="bank">Bank / Cash</option>' + state.cards.map(c=>`<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('');
-  const cardOnly = state.cards.map(c=>`<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('') || '<option value="">No cards added yet</option>';
-  const pw = document.getElementById('txPaidWith'); if(pw) pw.innerHTML = opts;
+  const acctOpts = state.bankAccounts.map(a=>`<option value="${a.id}">${escapeHTML(a.name)}</option>`).join('');
+  const cardOpts = state.cards.map(c=>`<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('');
+  const combined = (acctOpts ? `<optgroup label="Accounts">${acctOpts}</optgroup>` : '') + (cardOpts ? `<optgroup label="Credit Cards">${cardOpts}</optgroup>` : '');
+  const cardOnly = cardOpts || '<option value="">No cards added yet</option>';
+  const acctOnly = acctOpts || '<option value="">No accounts added yet</option>';
+  const pw = document.getElementById('txPaidWith'); if(pw) pw.innerHTML = combined;
   const cp = document.getElementById('txCardPaid'); if(cp) cp.innerHTML = cardOnly;
+  const paf = document.getElementById('txPayFromAccount'); if(paf) paf.innerHTML = acctOnly;
 }
 function populateCategoryDropdown(id, selected){
   const el = document.getElementById(id); if(!el) return;
@@ -927,6 +957,7 @@ document.getElementById('txCategory').addEventListener('change', (e)=>{
   const isCC = e.target.value === 'Credit Card';
   document.getElementById('txPaidWithWrap').style.display = isCC ? 'none' : 'block';
   document.getElementById('txCardPaidWrap').style.display = isCC ? 'block' : 'none';
+  document.getElementById('txPayFromAccountWrap').style.display = isCC ? 'block' : 'none';
 });
 
 // Flags categories running notably hotter this month than their recent
@@ -956,6 +987,9 @@ function renderAnomalies(){
 }
 function renderDashboard(){
   document.getElementById('dashRunning').textContent = fmt(runningBalance());
+  document.getElementById('dashAccountBreakdown').innerHTML = state.bankAccounts.length>1 ? state.bankAccounts.map(a=>
+    `<div class="sub" style="display:flex; justify-content:space-between;"><span>${escapeHTML(a.name)}</span><span>${fmt(accountBalance(a))}</span></div>`
+  ).join('') : '';
   document.getElementById('dashSafe').textContent = fmt(safeToSpend());
   const {inflow, outflow} = cashInOutCurrentCycle();
   document.getElementById('dashIn').textContent = fmt(inflow);
@@ -1145,6 +1179,12 @@ function renderBudgets(){
   const cats = Object.keys(state.budgets);
   if(cats.length===0){ wrap.innerHTML = emptyHTML('No budgets set — tap "Edit Budgets"'); return; }
   cats.forEach(cat=> wrap.appendChild(budgetRowEl(cat, spend[cat]||0, state.budgets[cat])));
+}
+function renderAccounts(){
+  document.getElementById('accountList').innerHTML = state.bankAccounts.length ? state.bankAccounts.map(a=>
+    `<div class="ledgerRow" data-aid="${a.id}"><div class="info"><div class="merchant">${escapeHTML(a.name)}</div><div class="who">as of ${a.balanceAsOf}</div></div><div class="leader"></div><span class="amt">${fmt(accountBalance(a))}</span></div>`
+  ).join('') : emptyHTML('No accounts yet');
+  document.querySelectorAll('#accountList .ledgerRow').forEach(el=> el.addEventListener('click', ()=> openEditAccount(el.dataset.aid)));
 }
 function renderRecurring(){
   document.getElementById('recurringList').innerHTML = state.recurring.length ? state.recurring.map(r=>
@@ -1369,11 +1409,14 @@ function applyMerchantMemory(name){
   const mem = state.merchantMemory[name]; if(!mem) return;
   document.getElementById('txMerchant').value = name;
   populateCategoryDropdown('txCategory', mem.category);
-  document.getElementById('txPaidWithWrap').style.display = mem.category==='Credit Card' ? 'none':'block';
-  document.getElementById('txCardPaidWrap').style.display = mem.category==='Credit Card' ? 'block':'none';
+  const isCC = mem.category==='Credit Card';
+  document.getElementById('txPaidWithWrap').style.display = isCC ? 'none':'block';
+  document.getElementById('txCardPaidWrap').style.display = isCC ? 'block':'none';
+  document.getElementById('txPayFromAccountWrap').style.display = isCC ? 'block':'none';
   populatePaymentDropdowns();
-  if(mem.category!=='Credit Card' && document.getElementById('txPaidWith').querySelector(`option[value="${mem.paymentMethod}"]`)) document.getElementById('txPaidWith').value = mem.paymentMethod;
-  if(mem.category==='Credit Card' && mem.cardPaid && document.getElementById('txCardPaid').querySelector(`option[value="${mem.cardPaid}"]`)) document.getElementById('txCardPaid').value = mem.cardPaid;
+  if(!isCC && document.getElementById('txPaidWith').querySelector(`option[value="${mem.paymentMethod}"]`)) document.getElementById('txPaidWith').value = mem.paymentMethod;
+  if(isCC && mem.cardPaid && document.getElementById('txCardPaid').querySelector(`option[value="${mem.cardPaid}"]`)) document.getElementById('txCardPaid').value = mem.cardPaid;
+  if(isCC && mem.paymentMethod && document.getElementById('txPayFromAccount').querySelector(`option[value="${mem.paymentMethod}"]`)) document.getElementById('txPayFromAccount').value = mem.paymentMethod;
   populatePaidByDropdown('txPaidBy', mem.paidBy);
   document.getElementById('txShared').checked = !!mem.isShared;
   document.getElementById('splitBox').classList.toggle('show', !!mem.isShared);
@@ -1395,7 +1438,7 @@ function openTxModal(){
   document.getElementById('txDate').value = todayISO();
   populateCategoryDropdown('txCategory', 'Food');
   populatePaidByDropdown('txPaidBy', 'Me');
-  document.getElementById('txPaidWithWrap').style.display='block'; document.getElementById('txCardPaidWrap').style.display='none';
+  document.getElementById('txPaidWithWrap').style.display='block'; document.getElementById('txCardPaidWrap').style.display='none'; document.getElementById('txPayFromAccountWrap').style.display='none';
   document.getElementById('txShared').checked=false;
   document.getElementById('splitBox').classList.remove('show');
   currentSplitType = 'percent';
@@ -1452,7 +1495,7 @@ document.getElementById('txSave').onclick = ()=>{
   const tx = { id: uid(), amount, merchant, note: document.getElementById('txNote').value.trim(),
     date: document.getElementById('txDate').value || todayISO(), loggedAt: new Date().toISOString(),
     category, paidBy: document.getElementById('txPaidBy').value||'Me',
-    paymentMethod: category==='Credit Card' ? 'bank' : (document.getElementById('txPaidWith').value||'bank'),
+    paymentMethod: category==='Credit Card' ? (document.getElementById('txPayFromAccount').value||state.bankAccounts[0]?.id) : (document.getElementById('txPaidWith').value||state.bankAccounts[0]?.id),
     cardPaid: category==='Credit Card' ? (document.getElementById('txCardPaid').value||null) : null,
     isShared, split, status:'approved', source:'manual' };
   state.transactions.push(tx); recordMerchantMemory(tx); saveState();
@@ -1462,7 +1505,7 @@ function simulateEmail(){
   const merchants = ['Big Bazaar','Amazon','Ola','Chai Point','More Supermarket','Indian Oil','Netflix','Reliance Trends'];
   const m = merchants[Math.floor(Math.random()*merchants.length)];
   const amount = +(Math.random()*3500+150).toFixed(2);
-  const tx = { id: uid(), amount, merchant:m, note:'', date: todayISO(), loggedAt: new Date().toISOString(), category:'Misc', paidBy:'Me', paymentMethod:'bank', cardPaid:null, isShared:false, split:null, status:'pending', source:'email-sim' };
+  const tx = { id: uid(), amount, merchant:m, note:'', date: todayISO(), loggedAt: new Date().toISOString(), category:'Misc', paidBy:'Me', paymentMethod: state.bankAccounts[0]?.id||null, cardPaid:null, isShared:false, split:null, status:'pending', source:'email-sim' };
   state.transactions.push(tx); saveState(); renderAll(); toast(`Bank alert: ${fmt(amount)} at ${m} → added to Pending`);
 }
 
@@ -1479,7 +1522,9 @@ function openApprove(id){
   document.querySelector('#approveOverlay .modal h3').textContent = isNew ? 'Review & Categorize' : 'Edit Transaction';
   const body = document.getElementById('approveBody');
   const cardOpts = state.cards.map(c=>`<option value="${c.id}" ${t.paymentMethod===c.id?'selected':''}>${escapeHTML(c.name)}</option>`).join('');
+  const acctOpts = state.bankAccounts.map(a=>`<option value="${a.id}" ${t.paymentMethod===a.id?'selected':''}>${escapeHTML(a.name)}</option>`).join('');
   const cardPaidOpts = state.cards.map(c=>`<option value="${c.id}" ${t.cardPaid===c.id?'selected':''}>${escapeHTML(c.name)}</option>`).join('') || '<option value="">No cards added yet</option>';
+  const payFromOpts = state.bankAccounts.map(a=>`<option value="${a.id}" ${t.paymentMethod===a.id?'selected':''}>${escapeHTML(a.name)}</option>`).join('') || '<option value="">No accounts added yet</option>';
   const paidByOpts = participantList().map(p=>`<option value="${escapeHTML(p)}" ${p===t.paidBy?'selected':''}>${escapeHTML(displayName(p))}</option>`).join('');
   const catOpts = state.categories.map(c=>`<option ${c===t.category?'selected':''}>${escapeHTML(c)}</option>`).join('');
   body.innerHTML = `
@@ -1492,8 +1537,9 @@ function openApprove(id){
     <div class="field"><label>Merchant</label><input type="text" id="apMerchant" value="${escapeHTML(t.merchant)}"></div>
     <div class="field"><label>What was this for?</label><textarea id="apNote">${escapeHTML(t.note||'')}</textarea></div>
     <div class="field"><label>Category</label><select id="apCategory">${catOpts}</select></div>
-    <div class="field" id="apPaidWithWrap" style="display:${t.category==='Credit Card'?'none':'block'};"><label>Paid With</label><select id="apPaidWith"><option value="bank" ${(!t.paymentMethod||t.paymentMethod==='bank')?'selected':''}>Bank / Cash</option>${cardOpts}</select></div>
+    <div class="field" id="apPaidWithWrap" style="display:${t.category==='Credit Card'?'none':'block'};"><label>Paid With</label><select id="apPaidWith"><optgroup label="Accounts">${acctOpts}</optgroup><optgroup label="Credit Cards">${cardOpts}</optgroup></select></div>
     <div class="field" id="apCardPaidWrap" style="display:${t.category==='Credit Card'?'block':'none'};"><label>Which card is this paying?</label><select id="apCardPaid">${cardPaidOpts}</select></div>
+    <div class="field" id="apPayFromAccountWrap" style="display:${t.category==='Credit Card'?'block':'none'};"><label>Pay from which account?</label><select id="apPayFromAccount">${payFromOpts}</select></div>
     <div class="field"><label>Paid By</label><select id="apPaidBy">${paidByOpts}</select></div>
     <div class="toggle"><input type="checkbox" id="apShared" ${t.isShared?'checked':''}><label style="margin:0;text-transform:none;font-size:.85rem;">Shared expense — split it</label></div>
     <div class="splitBox ${t.isShared?'show':''}" id="apSplitBox">
@@ -1508,6 +1554,7 @@ function openApprove(id){
     const isCC = e.target.value === 'Credit Card';
     document.getElementById('apPaidWithWrap').style.display = isCC ? 'none' : 'block';
     document.getElementById('apCardPaidWrap').style.display = isCC ? 'block' : 'none';
+    document.getElementById('apPayFromAccountWrap').style.display = isCC ? 'block' : 'none';
   });
   document.getElementById('apShared').onchange = e=> document.getElementById('apSplitBox').classList.toggle('show', e.target.checked);
   const initialSplitType = t.split ? t.split.type : 'percent';
@@ -1542,8 +1589,8 @@ function openApprove(id){
     t.note = document.getElementById('apNote').value.trim();
     t.category = document.getElementById('apCategory').value;
     t.paidBy = document.getElementById('apPaidBy').value;
-    if(t.category==='Credit Card'){ t.paymentMethod='bank'; t.cardPaid = document.getElementById('apCardPaid').value || null; }
-    else { t.paymentMethod = document.getElementById('apPaidWith').value || 'bank'; t.cardPaid = null; }
+    if(t.category==='Credit Card'){ t.paymentMethod = document.getElementById('apPayFromAccount').value || state.bankAccounts[0]?.id; t.cardPaid = document.getElementById('apCardPaid').value || null; }
+    else { t.paymentMethod = document.getElementById('apPaidWith').value || state.bankAccounts[0]?.id; t.cardPaid = null; }
     t.isShared = document.getElementById('apShared').checked;
     if(t.isShared){
       const { type, shares } = getSplitShares('ap','apSplitParticipants','apAmount');
@@ -1675,19 +1722,22 @@ function addInterval(dateStr, frequency){
 function openMarkRecurringPaid(id){
   const r = state.recurring.find(x=>x.id===id); if(!r) return;
   const nextDate = addInterval(r.dueDate, r.frequency||'monthly');
+  const acctOpts = state.bankAccounts.map(a=>`<option value="${a.id}">${escapeHTML(a.name)}</option>`).join('') || '<option value="">No accounts added yet</option>';
   openGenModal(`<h3>Mark ${escapeHTML(r.name)} as Paid</h3>
-    <p class="sub" style="margin-bottom:14px;">This logs the payment in your Ledger and moves the due date forward to <strong>${nextDate}</strong>.</p>
+    <p class="sub" style="margin-bottom:14px;">This logs the payment in your Ledger and moves the due date forward to <strong>${nextDate}</strong> — that next cycle always follows the original due date, whether you're paying early, on time, or late.</p>
     <div class="row2">
       <div class="field"><label>Amount Paid (${curSym()})</label><input type="number" id="mpAmount" value="${r.amount}" step="0.01"></div>
-      <div class="field"><label>Payment Date</label><input type="date" id="mpDate" value="${r.dueDate}"></div>
+      <div class="field"><label>Payment Date</label><input type="date" id="mpDate" value="${todayISO()}"></div>
     </div>
+    <p class="sub" style="margin-top:-10px; margin-bottom:14px;">Defaulted to today — change this if you're logging a payment you actually made on a different day.</p>
+    <div class="field"><label>Pay from which account?</label><select id="mpAccount">${acctOpts}</select></div>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="mpConfirm">Mark Paid</button></div>`);
   document.getElementById('mpConfirm').onclick = ()=>{
     const amount = parseFloat(document.getElementById('mpAmount').value);
     if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
     state.transactions.push({ id: uid(), amount, merchant: r.name, note: 'Recurring bill payment',
       date: document.getElementById('mpDate').value||r.dueDate, loggedAt: new Date().toISOString(),
-      category: r.category||'Misc', paidBy:'Me', paymentMethod:'bank', cardPaid:null,
+      category: r.category||'Misc', paidBy:'Me', paymentMethod: document.getElementById('mpAccount').value||state.bankAccounts[0]?.id, cardPaid:null,
       isShared:false, split:null, status:'approved', source:'manual' });
     r.dueDate = nextDate;
     saveState(); closeGen(); renderAll(); toast(`Marked paid — next due ${nextDate}`);
@@ -1715,19 +1765,21 @@ function openRecordCardPayment(cardId){
   const c = state.cards.find(x=>x.id===cardId); if(!c) return;
   const bal = cardBalance(c);
   const nextDue = c.dueDate ? addMonths(c.dueDate, 1) : null;
+  const acctOpts = state.bankAccounts.map(a=>`<option value="${a.id}">${escapeHTML(a.name)}</option>`).join('') || '<option value="">No accounts added yet</option>';
   openGenModal(`<h3>Record ${escapeHTML(c.name)} Bill Payment</h3>
     <p class="sub" style="margin-bottom:14px;">This logs a Credit Card transaction in your Ledger and reduces this card's balance by the amount paid.${nextDue ? ` It also moves this card's bill/due dates forward to next month's cycle (due <strong>${nextDue}</strong>).` : ''}</p>
     <div class="row2">
       <div class="field"><label>Amount Paid (${curSym()})</label><input type="number" id="cpAmount" value="${bal.toFixed(2)}" step="0.01"></div>
       <div class="field"><label>Date</label><input type="date" id="cpDate" value="${todayISO()}"></div>
     </div>
+    <div class="field"><label>Pay from which account?</label><select id="cpAccount">${acctOpts}</select></div>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="cpConfirm">Record Payment</button></div>`);
   document.getElementById('cpConfirm').onclick = ()=>{
     const amount = parseFloat(document.getElementById('cpAmount').value);
     if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
     state.transactions.push({ id: uid(), amount, merchant: c.name+' Bill Payment', note: 'Credit card bill payment',
       date: document.getElementById('cpDate').value||todayISO(), loggedAt: new Date().toISOString(),
-      category: 'Credit Card', paidBy: 'Me', paymentMethod: 'bank', cardPaid: c.id,
+      category: 'Credit Card', paidBy: 'Me', paymentMethod: document.getElementById('cpAccount').value||state.bankAccounts[0]?.id, cardPaid: c.id,
       isShared: false, split: null, status: 'approved', source: 'manual' });
     // A card's billing cycle advances every month regardless of how much
     // was paid -- same real-world behavior as a statement date, which is
@@ -1762,6 +1814,51 @@ document.getElementById('clearCardsBtn').onclick = ()=>{
   document.getElementById('confirmClear').onclick = ()=>{ state.cards=[]; saveState(); closeGen(); renderAll(); toast('Cards cleared'); };
 };
 
+/* ---------------- BANK ACCOUNTS ---------------- */
+document.getElementById('addAccountBtn').onclick = ()=>{
+  openGenModal(`<h3>Add Bank Account</h3>
+    <div class="field"><label>Account Name</label><input type="text" id="aName" placeholder="e.g. HDFC Savings"></div>
+    <div class="row2"><div class="field"><label>Current Balance (${curSym()})</label><input type="number" id="aBalance" step="0.01"></div><div class="field"><label>As Of</label><input type="date" id="aDate" value="${todayISO()}"></div></div>
+    <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="aSave">Add</button></div>`);
+  document.getElementById('aSave').onclick = ()=>{
+    const name = document.getElementById('aName').value.trim(); const openingBalance = parseFloat(document.getElementById('aBalance').value)||0;
+    if(!name){ toast('Enter an account name'); return; }
+    state.bankAccounts.push({ id: uid(), name, openingBalance, balanceAsOf: document.getElementById('aDate').value||todayISO() });
+    saveState(); closeGen(); renderAll(); toast('Account added');
+  };
+};
+function openEditAccount(id){
+  const a = state.bankAccounts.find(x=>x.id===id); if(!a) return;
+  openGenModal(`<h3>Edit Bank Account</h3>
+    <div class="field"><label>Account Name</label><input type="text" id="aName2" value="${escapeHTML(a.name)}"></div>
+    <p class="sub" style="margin-bottom:10px;">Resync any time by entering your real current balance and today's date — everything approved from that date onward is tracked automatically after that.</p>
+    <div class="row2"><div class="field"><label>Balance (${curSym()})</label><input type="number" id="aBalance2" value="${a.openingBalance}" step="0.01"></div><div class="field"><label>As Of</label><input type="date" id="aDate2" value="${a.balanceAsOf}"></div></div>
+    <p class="sub" style="margin-bottom:14px;">Current computed balance: <strong>${fmt(accountBalance(a))}</strong></p>
+    <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn ghost" style="color:var(--rust);" id="aDelete2">Delete Account</button><button class="btn" id="aSave2">Save</button></div>`);
+  document.getElementById('aDelete2').onclick = ()=>{
+    if(state.bankAccounts.length<=1){ toast('You need at least one account — add a replacement before deleting this one'); return; }
+    openGenModal(`<h3>Delete ${escapeHTML(a.name)}?</h3><p class="sub" style="margin-bottom:16px;">Past transactions charged to this account stay in your ledger, but will no longer count toward any account's balance.</p>
+      <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn danger" id="confirmDeleteAccount">Delete</button></div>`);
+    document.getElementById('confirmDeleteAccount').onclick = ()=>{
+      state.bankAccounts = state.bankAccounts.filter(x=>x.id!==id); saveState(); closeGen(); renderAll(); toast('Account removed');
+    };
+  };
+  document.getElementById('aSave2').onclick = ()=>{
+    a.name = document.getElementById('aName2').value.trim()||a.name;
+    a.openingBalance = parseFloat(document.getElementById('aBalance2').value)||0;
+    a.balanceAsOf = document.getElementById('aDate2').value||a.balanceAsOf;
+    saveState(); closeGen(); renderAll(); toast('Account updated');
+  };
+}
+document.getElementById('clearAccountsBtn').onclick = ()=>{
+  openGenModal(`<h3>Clear all accounts?</h3><p class="sub" style="margin-bottom:16px;">You need at least one account to keep logging transactions, so this resets to a single fresh "Main Account" with a zero balance rather than leaving you with none.</p>
+    <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn danger" id="confirmClear">Reset to One Account</button></div>`);
+  document.getElementById('confirmClear').onclick = ()=>{
+    state.bankAccounts = [{ id: uid(), name: 'Main Account', openingBalance: 0, balanceAsOf: todayISO() }];
+    saveState(); closeGen(); renderAll(); toast('Accounts reset');
+  };
+};
+
 /* ---------------- SETTINGS ---------------- */
 document.getElementById('saveSettingsBtn').onclick = ()=>{
   state.sheetSyncUrl = document.getElementById('sheetUrlInput').value.trim();
@@ -1769,13 +1866,6 @@ document.getElementById('saveSettingsBtn').onclick = ()=>{
   const cycleDay = parseInt(document.getElementById('cycleStartDayInput').value, 10);
   state.budgetCycleStartDay = (cycleDay>=1 && cycleDay<=28) ? cycleDay : 1;
   saveState(); renderAll(); toast('Settings saved');
-};
-document.getElementById('resyncBtn').onclick = ()=>{
-  const real = parseFloat(document.getElementById('balanceInput').value);
-  const asOf = document.getElementById('balanceAsOfInput').value || todayISO();
-  if(isNaN(real)){ toast('Enter your real balance'); return; }
-  state.balance = real; state.balanceAsOf = asOf;
-  saveState(); renderAll(); toast('Balance resynced');
 };
 
 /* ---------------- GOOGLE SHEET SYNC ---------------- */
@@ -1803,7 +1893,7 @@ document.getElementById('syncSheetBtn').onclick = async ()=>{
       state.transactions.push({
         id: uid(), sourceId: r.id, amount: parseFloat(r.amount)||0, merchant: r.merchant || 'Unknown',
         note: r.note || '', date: txDate, loggedAt,
-        category: r.direction==='credit' ? 'Income' : 'Misc', paidBy:'Me', paymentMethod:'bank', cardPaid:null, isShared:false, split:null,
+        category: r.direction==='credit' ? 'Income' : 'Misc', paidBy:'Me', paymentMethod: state.bankAccounts[0]?.id||null, cardPaid:null, isShared:false, split:null,
         status:'pending', source:'email-sheet'
       });
       added++;
@@ -1847,7 +1937,7 @@ document.getElementById('exportBtn').onclick = ()=>{
   const rows = [['Date','Time','Merchant','Note','Category','Amount','PaidBy','PaymentMethod','Status','Shared','Shares(JSON)']];
   state.transactions.forEach(t=>{
     const time = t.loggedAt ? new Date(t.loggedAt).toLocaleTimeString(curInfo().locale) : '';
-    const pm = t.paymentMethod==='bank'||!t.paymentMethod ? 'Bank/Cash' : (state.cards.find(c=>c.id===t.paymentMethod)?.name || 'Card');
+    const pm = state.cards.find(c=>c.id===t.paymentMethod)?.name || state.bankAccounts.find(a=>a.id===t.paymentMethod)?.name || 'Unknown';
     const displayShares = t.split ? Object.fromEntries(Object.entries(t.split.shares).map(([p,amt])=>[displayName(p),amt])) : null;
     rows.push([t.date, time, t.merchant, t.note||'', t.category, t.amount, displayName(t.paidBy), pm, t.status, t.isShared?'yes':'no', displayShares?JSON.stringify(displayShares):'']);
   });
