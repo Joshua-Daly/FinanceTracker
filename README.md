@@ -75,6 +75,7 @@ If you want, you can also connect it to a Google Sheet you own, which auto-scrap
 **Security & polish**
 - PIN-locked, and re-locks the instant you background the app
 - CSV export of your full ledger
+- Recovery code for a forgotten PIN — set once, right when you create your PIN: four random words that get you back into your existing data if you ever forget it, with only a SHA-256 hash of the code ever stored on the device (never the code itself), computed with the browser's own built-in Web Crypto API. No recovery code saved? A full local wipe is the fallback, deliberately gated behind typing an exact confirmation phrase so it can't happen by accident.
 - Installable ("Add to Home Screen") with its own icon and full-screen feel
 
 ## Getting started
