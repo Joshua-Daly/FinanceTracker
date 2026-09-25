@@ -6,6 +6,13 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1A1613">
 <link rel="apple-touch-icon" href="icon-512.png">
+<!-- iOS Safari ignores the web manifest for standalone/full-screen mode
+     and the home-screen title -- it needs these Apple-specific tags
+     instead, or "Add to Home Screen" just reopens inside Safari with the
+     browser UI still visible, which is what was happening without these. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tally Up">
 <title>Tally Up</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
