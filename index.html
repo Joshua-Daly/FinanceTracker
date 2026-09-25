@@ -595,17 +595,39 @@ function renderWizardPeopleChips(){
 }
 function renderWizardStep2(){
   document.getElementById('wizardModal').innerHTML = `
-    <h3>What's your starting balance?</h3>
-    <p class="sub" style="margin-bottom:14px;">Optional, but this makes "Safe to Spend" accurate right away. You can resync this anytime in Settings.</p>
+    <h3>Set up your first account</h3>
+    <p class="sub" style="margin-bottom:14px;">Optional, but this makes "Safe to Spend" accurate right away. You can add more accounts, rename this one, or resync it anytime in Settings.</p>
+    <div class="field"><label>Account Name</label><input type="text" id="wizardAccountName" placeholder="Main Account"></div>
     <div class="row2">
       <div class="field"><label>Current Balance (${curSym()})</label><input type="number" id="wizardBalance" placeholder="0.00"></div>
       <div class="field"><label>As Of</label><input type="date" id="wizardBalanceDate" value="${todayISO()}"></div>
     </div>
+    <div id="wizardExtraAccounts" style="margin-bottom:10px;"></div>
+    <button class="btn ghost small" id="wizardAddAnotherAccount" style="margin-bottom:14px; width:100%;">+ Add Another Account</button>
     <div class="modalActions"><button class="btn ghost" id="wizardSkip2">Skip</button><button class="btn" id="wizardFinish">Finish Setup</button></div>`;
+  let extraAccounts = [];
+  const renderExtra = ()=>{
+    document.getElementById('wizardExtraAccounts').innerHTML = extraAccounts.map((a,i)=>
+      `<div class="row2" style="margin-bottom:10px;"><div class="field" style="margin-bottom:0;"><input type="text" placeholder="Account name" value="${escapeHTML(a.name)}" data-idx="${i}" class="wizAccName"></div><div class="field" style="margin-bottom:0;"><input type="number" placeholder="Balance" value="${a.balance}" data-idx="${i}" class="wizAccBalance"></div><button class="btn ghost small wizAccRemove" data-idx="${i}">×</button></div>`
+    ).join('');
+    document.querySelectorAll('.wizAccName').forEach(el=> el.addEventListener('input', e=> extraAccounts[e.target.dataset.idx].name = e.target.value));
+    document.querySelectorAll('.wizAccBalance').forEach(el=> el.addEventListener('input', e=> extraAccounts[e.target.dataset.idx].balance = e.target.value));
+    document.querySelectorAll('.wizAccRemove').forEach(el=> el.addEventListener('click', e=>{ extraAccounts.splice(e.target.dataset.idx,1); renderExtra(); }));
+  };
+  document.getElementById('wizardAddAnotherAccount').onclick = ()=>{ extraAccounts.push({name:'', balance:''}); renderExtra(); };
   document.getElementById('wizardSkip2').onclick = finishWizard;
   document.getElementById('wizardFinish').onclick = ()=>{
     const bal = parseFloat(document.getElementById('wizardBalance').value);
-    if(!isNaN(bal) && state.bankAccounts[0]){ state.bankAccounts[0].openingBalance = bal; state.bankAccounts[0].balanceAsOf = document.getElementById('wizardBalanceDate').value || todayISO(); }
+    const asOf = document.getElementById('wizardBalanceDate').value || todayISO();
+    const name = document.getElementById('wizardAccountName').value.trim();
+    if(state.bankAccounts[0]){
+      if(name) state.bankAccounts[0].name = name;
+      if(!isNaN(bal)){ state.bankAccounts[0].openingBalance = bal; state.bankAccounts[0].balanceAsOf = asOf; }
+    }
+    extraAccounts.forEach(a=>{
+      if(!a.name.trim()) return; // skip blank rows someone opened then didn't fill in
+      state.bankAccounts.push({ id: uid(), name: a.name.trim(), openingBalance: parseFloat(a.balance)||0, balanceAsOf: asOf });
+    });
     finishWizard();
   };
 }
