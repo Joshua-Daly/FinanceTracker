@@ -96,6 +96,7 @@ main{ padding:22px 20px; max-width:100%; overflow-x:hidden; }
 
 .btn{ background:var(--brass); color:#1A1613; border:none; border-radius:8px; padding:10px 18px; font-weight:600; font-size:.85rem; cursor:pointer; font-family:inherit; transition:all .15s; }
 .btn:hover{ background:#DDB53A; transform:translateY(-1px); }
+.btn:disabled{ opacity:.4; cursor:not-allowed; transform:none; }
 .btn.ghost{ background:none; border:1px solid var(--paper-line); color:var(--ink-dim); }
 .btn.ghost:hover{ border-color:var(--brass-dim); color:var(--brass); transform:none; }
 .btn.danger{ background:var(--rust); color:#fff; }
@@ -182,6 +183,11 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
   <div class="numpad" id="numpad"></div>
   <div id="lockError"></div>
   <p id="lockSetupNote" style="display:none;">First time here — set a 4-digit PIN to protect your ledger. This PIN stays only on this device.</p>
+  <p id="forgotPinLink" style="display:none; color:var(--ink-faint); font-size:.8rem; cursor:pointer; text-decoration:underline;">Forgot PIN?</p>
+</div>
+
+<div id="recoveryFlow" style="display:none; position:fixed; inset:0; background:var(--paper); z-index:999; align-items:center; justify-content:center; padding:20px;">
+  <div class="modal" id="recoveryModal" style="max-width:420px; border-radius:16px; max-height:none; animation:none;"></div>
 </div>
 
 <div id="setupWizard" style="display:none; position:fixed; inset:0; background:var(--paper); z-index:998; align-items:center; justify-content:center; padding:20px;">
@@ -388,7 +394,9 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
       </div>
       <div class="card" style="margin-top:16px;">
         <div class="label">Security &amp; Data</div>
+        <p class="sub" style="margin-bottom:10px;">A recovery code lets you reset a forgotten PIN without losing any data. Without one set up, a forgotten PIN can only be recovered by wiping everything and starting fresh.</p>
         <button class="btn ghost small" id="changePinBtn">Change PIN</button>
+        <button class="btn ghost small" id="setupRecoveryBtn">Recovery Code</button>
         <button class="btn ghost small" id="resetDataBtn" style="margin-left:8px;color:var(--rust);">Reset All Data</button>
       </div>
     </section>
@@ -455,7 +463,23 @@ function curSym(){ return curInfo().symbol; }
 // what's rendered to the user changes.
 function displayName(name){ return name==='Me' ? (state.myName||'Me') : name; }
 
-const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, bankAccounts: [], people: [], categories: [], partner: null, pin: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR', myName: '', budgetCycleStartDay: 1 };
+const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, bankAccounts: [], people: [], categories: [], partner: null, pin: null, recoveryHash: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR', myName: '', budgetCycleStartDay: 1 };
+// Word-based recovery code generation + hashing. Only a SHA-256 hash of
+// the code is ever stored -- never the code itself -- so even someone
+// who dumps this device's local storage can't read a usable code back
+// out of it. Uses the browser's built-in Web Crypto API, no library
+// needed, same as any HTTPS site can.
+const RECOVERY_WORDLIST = ['amber','anchor','arrow','autumn','banjo','basil','beacon','birch','blossom','bramble','canyon','cedar','clover','comet','copper','coral','crescent','cricket','crimson','daisy','delta','ember','falcon','feather','fern','flint','forest','garnet','glacier','harbor','hazel','heron','indigo','ivory','jasper','juniper','lagoon','lantern','laurel','lotus','magpie','maple','marble','meadow','mist','moss','nectar','nimbus','oak','oasis','olive','opal','orchid','otter','pebble','petal','pine','plaza','prairie','quartz','quill','raven','reef','ridge','rowan','saffron','sage','sequoia','shadow','silver','sorrel','sparrow','spruce','storm','summit','sunrise','swift','tangerine','thistle','thunder','tiger','timber','topaz','tundra','valley','velvet','violet','walnut','willow','zephyr'];
+function generateRecoveryCode(){
+  const words = [];
+  for(let i=0;i<4;i++){ words.push(RECOVERY_WORDLIST[Math.floor(Math.random()*RECOVERY_WORDLIST.length)]); }
+  return words.join('-');
+}
+async function sha256Hex(text){
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 let currentEditTx = null;
 let currentSplitType = 'percent';
 
@@ -484,6 +508,7 @@ function loadState(){
     if(!p) p = localStorage.getItem('familyledger-pin');
     if(p) state.pin = p;
   }catch(e){ state.pin = null; }
+  try{ state.recoveryHash = localStorage.getItem('tallyup-recovery-hash') || null; }catch(e){ state.recoveryHash = null; }
   if(!state.balanceAsOf) state.balanceAsOf = todayISO();
   if(!state.categories || state.categories.length===0) state.categories = [...DEFAULT_CATEGORIES];
   if(!state.people || state.people.length===0){ state.people = state.partner ? [state.partner] : []; }
@@ -517,6 +542,7 @@ function saveState(){
   }catch(e){ console.error('save failed', e); toast('Could not save to this browser'); }
 }
 function savePin(pin){ state.pin = pin; try{ localStorage.setItem('tallyup-pin', pin); }catch(e){ console.error(e); } }
+function saveRecoveryHash(hash){ state.recoveryHash = hash; try{ localStorage.setItem('tallyup-recovery-hash', hash); }catch(e){ console.error(e); } }
 
 /* ---------------- PIN LOCK ---------------- */
 let pinBuffer = '';
@@ -547,7 +573,7 @@ function submitPin(){
       firstPinEntry = pinBuffer; pinBuffer=''; renderPinDots(); settingUpPin = true;
       document.getElementById('lockPrompt').textContent = 'Confirm your PIN'; return;
     } else {
-      if(firstPinEntry === pinBuffer){ savePin(pinBuffer); startSetupWizard(); }
+      if(firstPinEntry === pinBuffer){ savePin(pinBuffer); offerRecoverySetup(); }
       else{
         document.getElementById('lockError').textContent = "PINs didn't match — try again";
         settingUpPin = false; pinBuffer=''; firstPinEntry='';
@@ -560,6 +586,113 @@ function submitPin(){
   else{ document.getElementById('lockError').textContent = 'Incorrect PIN'; pinBuffer=''; renderPinDots(); }
 }
 function unlock(){ document.getElementById('lockScreen').style.display='none'; document.getElementById('app').style.display='block'; renderAll(); }
+
+/* ---------------- FORGOT PIN / RECOVERY ---------------- */
+// Shown once, right after a PIN is first created. The code itself is
+// never stored -- only its hash -- so this is the ONLY moment it will
+// ever be shown on screen. Saving it somewhere safe is genuinely the
+// person's only responsibility here.
+function offerRecoverySetup(){
+  document.getElementById('lockScreen').style.display='none';
+  document.getElementById('recoveryFlow').style.display='flex';
+  const code = generateRecoveryCode();
+  document.getElementById('recoveryModal').innerHTML = `
+    <h3>Save a Recovery Code</h3>
+    <p class="sub" style="margin-bottom:14px;">If you ever forget your PIN, this code is the only way back into your data without losing it. Save it somewhere safe — a password manager, written down, anywhere but memory alone. It won't be shown again.</p>
+    <div class="card" style="text-align:center; margin-bottom:14px;"><div class="big mono" style="font-size:1.25rem; letter-spacing:.5px; word-break:break-all;">${code}</div></div>
+    <button class="btn ghost small" id="emailRecoveryCodeBtn" style="width:100%; margin-bottom:14px;">Email This to Myself</button>
+    <div class="modalActions"><button class="btn ghost" id="skipRecoverySetup">Skip for now</button><button class="btn" id="confirmRecoverySaved">I've Saved It — Continue</button></div>`;
+  document.getElementById('emailRecoveryCodeBtn').onclick = ()=>{
+    const subject = encodeURIComponent('Tally Up — My Recovery Code');
+    const body = encodeURIComponent(`Keep this somewhere safe. If you ever forget your Tally Up PIN, this code lets you reset it without losing any data:\n\n${code}\n\nThis only works on the device you set it up on -- there's no account or server, so it can't be used from anywhere else.`);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  };
+  document.getElementById('confirmRecoverySaved').onclick = async ()=>{
+    const hash = await sha256Hex(code.toLowerCase());
+    saveRecoveryHash(hash);
+    document.getElementById('recoveryFlow').style.display='none';
+    startSetupWizard();
+  };
+  document.getElementById('skipRecoverySetup').onclick = ()=>{
+    document.getElementById('recoveryFlow').style.display='none';
+    startSetupWizard();
+  };
+}
+function openForgotPin(){
+  document.getElementById('lockScreen').style.display='none';
+  document.getElementById('recoveryFlow').style.display='flex';
+  renderRecoveryCodeEntry();
+}
+function closeRecoveryFlow(){
+  document.getElementById('recoveryFlow').style.display='none';
+  document.getElementById('lockScreen').style.display='flex';
+}
+function renderRecoveryCodeEntry(){
+  document.getElementById('recoveryModal').innerHTML = `
+    <h3>Recover Your PIN</h3>
+    <p class="sub" style="margin-bottom:14px;">Enter the recovery code you saved when you first set up your PIN.</p>
+    <div class="field"><input type="text" id="recoveryCodeInput" placeholder="word-word-word-word" style="text-align:center; font-family:'IBM Plex Mono',monospace;"></div>
+    <div id="recoveryError" style="color:var(--rust); font-size:.8rem; margin-bottom:10px; min-height:1em;"></div>
+    <div class="modalActions"><button class="btn ghost" id="recoveryBack">Back</button><button class="btn" id="recoveryVerify">Verify</button></div>
+    <p class="sub" style="margin-top:16px; text-align:center;"><a href="#" id="noRecoveryCodeLink" style="color:var(--rust);">I don't have my recovery code</a></p>`;
+  document.getElementById('recoveryBack').onclick = closeRecoveryFlow;
+  document.getElementById('noRecoveryCodeLink').onclick = (e)=>{ e.preventDefault(); renderFullWipeConfirm(); };
+  document.getElementById('recoveryVerify').onclick = async ()=>{
+    const input = document.getElementById('recoveryCodeInput').value.trim().toLowerCase();
+    if(!input){ document.getElementById('recoveryError').textContent = 'Enter your recovery code'; return; }
+    if(!state.recoveryHash){ document.getElementById('recoveryError').textContent = 'No recovery code was ever set up on this device'; return; }
+    const hash = await sha256Hex(input);
+    if(hash === state.recoveryHash){ renderNewPinAfterRecovery(); }
+    else{ document.getElementById('recoveryError').textContent = "That code doesn't match — check for typos"; }
+  };
+}
+function renderNewPinAfterRecovery(){
+  document.getElementById('recoveryModal').innerHTML = `
+    <h3>Set a New PIN</h3>
+    <p class="sub" style="margin-bottom:14px;">Verified — all your data is safe. Choose a new 4-digit PIN.</p>
+    <div class="row2">
+      <div class="field"><label>New PIN</label><input type="text" maxlength="4" id="newPinAfterRecovery" placeholder="1234"></div>
+      <div class="field"><label>Confirm</label><input type="text" maxlength="4" id="confirmPinAfterRecovery" placeholder="1234"></div>
+    </div>
+    <div id="newPinError" style="color:var(--rust); font-size:.8rem; margin-bottom:10px; min-height:1em;"></div>
+    <div class="modalActions"><button class="btn" id="savePinAfterRecovery">Save New PIN &amp; Unlock</button></div>`;
+  document.getElementById('savePinAfterRecovery').onclick = ()=>{
+    const p1 = document.getElementById('newPinAfterRecovery').value;
+    const p2 = document.getElementById('confirmPinAfterRecovery').value;
+    if(!/^\d{4}$/.test(p1)){ document.getElementById('newPinError').textContent = 'PIN must be 4 digits'; return; }
+    if(p1 !== p2){ document.getElementById('newPinError').textContent = "PINs don't match"; return; }
+    savePin(p1);
+    document.getElementById('recoveryFlow').style.display='none';
+    unlock();
+    toast('PIN reset — welcome back');
+  };
+}
+// The last resort for anyone who skipped setting up a recovery code:
+// genuinely destructive, gated behind typing an exact confirmation
+// phrase (not a single tap) so it can't happen by accident or from
+// someone just poking around a locked phone.
+function renderFullWipeConfirm(){
+  document.getElementById('recoveryModal').innerHTML = `
+    <h3>Start Completely Fresh?</h3>
+    <p class="sub" style="margin-bottom:14px; color:var(--brass);">This permanently erases every transaction, account, card, and setting on this device. There is no undo, and no way to recover this data afterward.</p>
+    <p class="sub" style="margin-bottom:10px;">Type <strong>DELETE MY DATA</strong> below to confirm.</p>
+    <div class="field"><input type="text" id="wipeConfirmInput" placeholder="DELETE MY DATA"></div>
+    <div class="modalActions"><button class="btn ghost" id="wipeBack">Back</button><button class="btn danger" id="wipeConfirmBtn" disabled>Erase Everything</button></div>`;
+  document.getElementById('wipeBack').onclick = closeRecoveryFlow;
+  const input = document.getElementById('wipeConfirmInput');
+  const btn = document.getElementById('wipeConfirmBtn');
+  input.addEventListener('input', ()=>{ btn.disabled = input.value.trim() !== 'DELETE MY DATA'; });
+  btn.onclick = ()=>{
+    if(input.value.trim() !== 'DELETE MY DATA') return;
+    try{
+      localStorage.removeItem('tallyup-data');
+      localStorage.removeItem('tallyup-pin');
+      localStorage.removeItem('tallyup-recovery-hash');
+    }catch(e){ console.error(e); }
+    location.reload();
+  };
+}
+
 /* ---------------- FIRST-TIME SETUP WIZARD ---------------- */
 function startSetupWizard(){
   document.getElementById('lockScreen').style.display='none';
@@ -644,12 +777,15 @@ function relock(){
   renderPinDots();
   document.getElementById('app').style.display='none';
   document.getElementById('lockScreen').style.display='flex';
+  document.getElementById('forgotPinLink').style.display = state.pin ? 'block' : 'none';
 }
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden' && state.pin){ relock(); } });
 window.addEventListener('pagehide', ()=>{ if(state.pin) relock(); });
 function initLock(){
   loadState(); renderNumpad(); renderPinDots();
   if(!state.pin){ document.getElementById('lockSetupNote').style.display='block'; document.getElementById('lockPrompt').textContent = 'Choose a 4-digit PIN'; }
+  else{ document.getElementById('forgotPinLink').style.display='block'; }
+  document.getElementById('forgotPinLink').onclick = openForgotPin;
 }
 
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
@@ -1935,6 +2071,25 @@ document.getElementById('changePinBtn').onclick = ()=>{
     const p = document.getElementById('newPin').value;
     if(!/^\d{4}$/.test(p)){ toast('PIN must be 4 digits'); return; }
     savePin(p); closeGen(); toast('PIN updated');
+  };
+};
+document.getElementById('setupRecoveryBtn').onclick = ()=>{
+  const code = generateRecoveryCode();
+  const isRegenerating = !!state.recoveryHash;
+  openGenModal(`<h3>${isRegenerating ? 'Regenerate' : 'Set Up'} Recovery Code</h3>
+    <p class="sub" style="margin-bottom:14px;">${isRegenerating ? 'This replaces your existing recovery code — the old one will stop working.' : 'If you ever forget your PIN, this code is the only way back into your data without losing it.'} Save it somewhere safe.</p>
+    <div class="card" style="text-align:center; margin-bottom:14px;"><div class="big mono" style="font-size:1.25rem; letter-spacing:.5px; word-break:break-all;">${code}</div></div>
+    <button class="btn ghost small" id="emailRecoveryCodeBtn2" style="width:100%; margin-bottom:14px;">Email This to Myself</button>
+    <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="confirmRecoverySaved2">I've Saved It</button></div>`);
+  document.getElementById('emailRecoveryCodeBtn2').onclick = ()=>{
+    const subject = encodeURIComponent('Tally Up — My Recovery Code');
+    const body = encodeURIComponent(`Keep this somewhere safe. If you ever forget your Tally Up PIN, this code lets you reset it without losing any data:\n\n${code}`);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  };
+  document.getElementById('confirmRecoverySaved2').onclick = async ()=>{
+    const hash = await sha256Hex(code.toLowerCase());
+    saveRecoveryHash(hash);
+    closeGen(); toast('Recovery code saved');
   };
 };
 document.getElementById('resetDataBtn').onclick = ()=>{
