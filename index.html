@@ -703,15 +703,31 @@ function cardBalance(card){
   });
   return bal;
 }
+// Calendar-day difference between today and a "YYYY-MM-DD" string,
+// entirely immune to timezone drift. The bug this replaces: new Date(dueDate)
+// parses as UTC midnight while `new Date()` is the current LOCAL moment --
+// for any timezone ahead of UTC (like IST), that silently makes a bill due
+// TODAY compute as already a few hours in the past the moment it's past
+// 5:30am local time, dropping it out of "upcoming" entirely. Building both
+// sides from the same y/m/d components via Date.UTC sidesteps the whole
+// problem -- "due today" is always exactly 0, no matter the time of day
+// or which timezone the device is in.
+function daysUntil(dateStr){
+  const [ty,tm,td] = todayISO().split('-').map(Number);
+  const [dy,dm,dd] = dateStr.split('-').map(Number);
+  const todayUTC = Date.UTC(ty, tm-1, td);
+  const dueUTC = Date.UTC(dy, dm-1, dd);
+  return Math.round((dueUTC - todayUTC) / (1000*60*60*24));
+}
 function upcomingItems(days=30){
-  const now = new Date(); const items = [];
+  const items = [];
   state.recurring.forEach(r=>{
-    const due = new Date(r.dueDate); const diff=(due-now)/(1000*60*60*24);
+    const diff = daysUntil(r.dueDate);
     if(diff>=0 && diff<=days) items.push({name:r.name, amount:Number(r.amount), dueDate:r.dueDate, type:'Recurring'});
   });
   state.cards.forEach(c=>{
     if(!c.dueDate) return;
-    const due = new Date(c.dueDate); const diff=(due-now)/(1000*60*60*24);
+    const diff = daysUntil(c.dueDate);
     const bal = cardBalance(c);
     if(diff>=0 && diff<=days && bal>0.004) items.push({name:c.name+' Bill', amount:bal, dueDate:c.dueDate, type:'Card'});
   });
