@@ -79,10 +79,24 @@ If you want, you can also connect it to a Google Sheet you own, which auto-scrap
 
 ## Getting started
 
-1. Open **https://joshua-daly.github.io/FinanceTracker/** in Chrome (Android) or Safari (iPhone)
-2. Tap the menu → **"Add to Home Screen"** / **"Install app"**
-3. Open it from your home screen and follow the short setup: PIN → who you split with → starting balance (all but the PIN are skippable)
-4. Start logging transactions with the **+** button, or set up Gmail auto-sync below
+### Installing on Android
+
+1. Open **https://joshua-daly.github.io/FinanceTracker/** in Chrome
+2. Tap the **⋮** menu (top right) → **"Add to Home Screen"** or **"Install app"**
+3. Confirm — you'll get a real home-screen icon that opens full-screen, no browser bar
+
+### Installing on iPhone
+
+iPhone works a little differently, and it's worth knowing why: **Safari never shows an automatic install prompt**, on this app or any other — that's a permanent iOS limitation, not something this app can change. Installing is always a manual step:
+
+1. Open **https://joshua-daly.github.io/FinanceTracker/** in **Safari** specifically (not Chrome — iOS only allows installing from Safari itself)
+2. Tap the **Share** icon (the square with an arrow pointing up), usually along the bottom of the screen
+3. Scroll down and tap **"Add to Home Screen"**
+4. Tap **"Add"** in the top right — you'll now have a real home-screen icon that opens full-screen, with no Safari address bar
+
+### Either platform, once installed
+
+Open it from your home screen and follow the short setup: PIN → who you split with → starting balance (all but the PIN are skippable). Start logging transactions with the **+** button, or set up Gmail auto-sync below.
 
 ## How it works (for the curious)
 
