@@ -441,8 +441,8 @@ table.rep tr:hover td{ background:rgba(201,162,39,0.04); }
 <div class="toast" id="toast"></div>
 
 <script>
-const DEFAULT_CATEGORIES = ["Shared","Commute","Food","Shopping","Misc","Social","Personal","Investments","Credit Card","Income"];
-const PROTECTED_CATEGORIES = ["Income","Credit Card"];
+const DEFAULT_CATEGORIES = ["Shared","Commute","Food","Shopping","Misc","Social","Personal","Investments","Credit Card","Income","Settlement"];
+const PROTECTED_CATEGORIES = ["Income","Credit Card","Settlement"];
 // JPY intentionally has 0 decimals -- yen doesn't use subunits day-to-day,
 // so showing "¥500.00" would look wrong to anyone actually using it.
 const CURRENCIES = {
@@ -463,7 +463,7 @@ function curSym(){ return curInfo().symbol; }
 // what's rendered to the user changes.
 function displayName(name){ return name==='Me' ? (state.myName||'Me') : name; }
 
-const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], balance: 0, balanceAsOf: null, bankAccounts: [], people: [], categories: [], partner: null, pin: null, recoveryHash: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR', myName: '', budgetCycleStartDay: 1 };
+const state = { transactions: [], recurring: [], cards: [], budgets: {}, settlements: [], settlementsMigrated: false, balance: 0, balanceAsOf: null, bankAccounts: [], people: [], categories: [], partner: null, pin: null, recoveryHash: null, sheetSyncUrl: '', merchantMemory: {}, currency: 'INR', myName: '', budgetCycleStartDay: 1 };
 // Word-based recovery code generation + hashing. Only a SHA-256 hash of
 // the code is ever stored -- never the code itself -- so even someone
 // who dumps this device's local storage can't read a usable code back
@@ -511,6 +511,7 @@ function loadState(){
   try{ state.recoveryHash = localStorage.getItem('tallyup-recovery-hash') || null; }catch(e){ state.recoveryHash = null; }
   if(!state.balanceAsOf) state.balanceAsOf = todayISO();
   if(!state.categories || state.categories.length===0) state.categories = [...DEFAULT_CATEGORIES];
+  if(!state.categories.includes('Settlement')) state.categories.push('Settlement');
   if(!state.people || state.people.length===0){ state.people = state.partner ? [state.partner] : []; }
   if(!state.merchantMemory) state.merchantMemory = {};
   if(!state.currency || !CURRENCIES[state.currency]) state.currency = 'INR';
@@ -530,12 +531,32 @@ function loadState(){
       if(!t.paymentMethod || t.paymentMethod==='bank') t.paymentMethod = mainId;
     });
   }
+  // Migrates old settlement records (a separate shadow array that never
+  // showed up as a real transaction, in any account, or in the Ledger --
+  // exactly the bug this whole redesign fixes) into real Settlement-
+  // category ledger transactions. Runs once, guarded so it can't
+  // duplicate on subsequent loads. Direction is inferred from the old
+  // signed "delta" field: negative meant "they paid me" (in), positive
+  // meant "I paid them" (out). Attributed to the first account, since
+  // the old model never recorded which account was actually used.
+  if(state.settlements && state.settlements.length>0 && !state.settlementsMigrated){
+    state.settlements.forEach(s=>{
+      state.transactions.push({
+        id: uid(), amount: s.amount, merchant: `Settled with ${s.person}`, note: 'Migrated settlement',
+        date: s.date || todayISO(), loggedAt: new Date().toISOString(),
+        category: 'Settlement', settleDirection: s.delta < 0 ? 'in' : 'out', settlePerson: s.person,
+        paidBy: 'Me', paymentMethod: state.bankAccounts[0]?.id || null, cardPaid: null,
+        isShared: false, split: null, status: 'approved', source: 'manual'
+      });
+    });
+    state.settlementsMigrated = true;
+  }
 }
 function saveState(){
   try{
     localStorage.setItem('tallyup-data', JSON.stringify({
       transactions: state.transactions, recurring: state.recurring, cards: state.cards,
-      budgets: state.budgets, settlements: state.settlements, bankAccounts: state.bankAccounts,
+      budgets: state.budgets, settlements: state.settlements, settlementsMigrated: state.settlementsMigrated, bankAccounts: state.bankAccounts,
       people: state.people, categories: state.categories, sheetSyncUrl: state.sheetSyncUrl, merchantMemory: state.merchantMemory,
       currency: state.currency, myName: state.myName, budgetCycleStartDay: state.budgetCycleStartDay
     }));
@@ -825,13 +846,20 @@ function cycleMonthKey(dateStr){
 function currentCycleKey(){ return cycleMonthKey(todayISO()); }
 function categorySpendForCycleKey(key){
   const map = {};
-  approvedTx().filter(t=>cycleMonthKey(t.date)===key && t.category!=='Income').forEach(t=>{ map[t.category] = (map[t.category]||0) + t.amount; });
+  approvedTx().filter(t=>cycleMonthKey(t.date)===key && t.category!=='Income' && t.category!=='Settlement').forEach(t=>{ map[t.category] = (map[t.category]||0) + t.amount; });
   return map;
 }
 function categorySpendCurrentCycle(){ return categorySpendForCycleKey(currentCycleKey()); }
+// Settlements are excluded from both inflow and outflow entirely -- a
+// repayment isn't real income or real spending, it's squaring up a debt
+// that already existed. Counting it either way would misleadingly
+// inflate or deflate what this month's cash flow actually looks like.
 function cashInOutCurrentCycle(){
   const key = currentCycleKey(); let inflow=0, outflow=0;
-  approvedTx().filter(t=>cycleMonthKey(t.date)===key).forEach(t=>{ if(t.category==='Income') inflow += t.amount; else outflow += t.amount; });
+  approvedTx().filter(t=>cycleMonthKey(t.date)===key).forEach(t=>{
+    if(t.category==='Settlement') return;
+    if(t.category==='Income') inflow += t.amount; else outflow += t.amount;
+  });
   return {inflow, outflow};
 }
 // Previous N period keys for trailing-average comparisons. Falls back to
@@ -851,7 +879,10 @@ function prevCycleKeys(n){
 }
 function cashInOut(monthStr){
   const m = monthStr || thisMonth(); let inflow=0, outflow=0;
-  approvedTx().filter(t=>monthKey(t.date)===m).forEach(t=>{ if(t.category==='Income') inflow += t.amount; else outflow += t.amount; });
+  approvedTx().filter(t=>monthKey(t.date)===m).forEach(t=>{
+    if(t.category==='Settlement') return;
+    if(t.category==='Income') inflow += t.amount; else outflow += t.amount;
+  });
   return {inflow, outflow};
 }
 // Running balance reflects cash actually moving through YOUR bank account.
@@ -866,25 +897,21 @@ function accountBalance(account){
     if(t.date < baseline) return;
     if((t.paidBy||'Me').toLowerCase() !== 'me') return; // someone else's money, not yours
     if(t.paymentMethod !== account.id) return; // only transactions actually charged to THIS account
-    if(t.category==='Income') bal += t.amount; else bal -= t.amount;
+    if(t.category==='Settlement'){
+      // Direction is explicit (chosen when recording it), not inferred
+      // from the debt balance's sign -- "in" always means money credited
+      // to this account, "out" always means money left it.
+      if(t.settleDirection==='in') bal += t.amount; else bal -= t.amount;
+    } else if(t.category==='Income'){ bal += t.amount; }
+    else{ bal -= t.amount; }
   });
   return bal;
 }
-// Total across every account, plus settlements. Settlements represent
-// money that changed hands directly with another person, not tied to any
-// one tracked account -- applied once to the combined total rather than
-// asking "which account did you pay this from" on every single
-// settlement, which would be a lot of friction for something that
-// happens occasionally, not daily.
+// Total across every account. Settlements now flow through here
+// automatically since they're real transactions tied to a real account,
+// same as everything else -- no separate adjustment needed anymore.
 function runningBalance(){
-  const accountsTotal = (state.bankAccounts||[]).reduce((sum,a)=> sum + accountBalance(a), 0);
-  const earliestBaseline = (state.bankAccounts||[]).reduce((min,a)=> a.balanceAsOf && (!min || a.balanceAsOf<min) ? a.balanceAsOf : min, null) || '1970-01-01';
-  let settleAdj = 0;
-  state.settlements.forEach(s=>{
-    if(s.date && s.date < earliestBaseline) return;
-    settleAdj += -s.delta; // mirror of the debt-balance delta: paying down what you owe leaves your account, being paid back enters it
-  });
-  return accountsTotal + settleAdj;
+  return (state.bankAccounts||[]).reduce((sum,a)=> sum + accountBalance(a), 0);
 }
 // A card's outstanding balance, same logic: only charges YOU made ("Me")
 // affect a card that's registered as yours.
@@ -944,18 +971,27 @@ function personBalances(){
       else if(person.toLowerCase()==='me'){ if(balances[payer]!==undefined) balances[payer]-=amt; }
     });
   });
-  state.settlements.forEach(s=>{ if(balances[s.person]!==undefined) balances[s.person]+=s.delta; });
+  // Settlements are now real ledger transactions (category 'Settlement'),
+  // not a separate shadow record -- this is what makes deleting or
+  // editing one immediately and correctly recompute both the debt
+  // balance AND the account it moved through, with nothing to get out
+  // of sync between two places.
+  approvedTx().filter(t=>t.category==='Settlement' && t.settlePerson).forEach(t=>{
+    if(balances[t.settlePerson]===undefined) return;
+    if(t.settleDirection==='in') balances[t.settlePerson] -= t.amount; // they paid you back -> reduces what they owe you
+    else balances[t.settlePerson] += t.amount; // you paid them back -> reduces what you owe them
+  });
   return balances;
 }
 function netOwedTotal(){ return Object.values(personBalances()).reduce((a,b)=>a+b,0); }
 function categorySpend(monthStr){
   const m = monthStr || thisMonth(); const map = {};
-  approvedTx().filter(t=>monthKey(t.date)===m && t.category!=='Income').forEach(t=>{ map[t.category] = (map[t.category]||0) + t.amount; });
+  approvedTx().filter(t=>monthKey(t.date)===m && t.category!=='Income' && t.category!=='Settlement').forEach(t=>{ map[t.category] = (map[t.category]||0) + t.amount; });
   return map;
 }
 function merchantSpend(monthStr){
   const m = monthStr || thisMonth(); const map = {};
-  approvedTx().filter(t=>monthKey(t.date)===m && t.category!=='Income').forEach(t=>{
+  approvedTx().filter(t=>monthKey(t.date)===m && t.category!=='Income' && t.category!=='Settlement').forEach(t=>{
     if(!map[t.merchant]) map[t.merchant] = {count:0, total:0};
     map[t.merchant].count++; map[t.merchant].total += t.amount;
   });
@@ -1193,8 +1229,9 @@ function budgetRowEl(cat, spent, limit){
   return div;
 }
 function rowHTML(t){
-  const sign = t.category==='Income' ? '+' : '−';
-  const cls = t.category==='Income' ? 'positive' : '';
+  const isInflow = t.category==='Income' || (t.category==='Settlement' && t.settleDirection==='in');
+  const sign = isInflow ? '+' : '−';
+  const cls = isInflow ? 'positive' : '';
   const timePart = t.loggedAt ? new Date(t.loggedAt).toLocaleTimeString(curInfo().locale,{hour:'2-digit',minute:'2-digit'}) : '';
   return `<div class="ledgerRow" data-id="${t.id}">
     <div class="info">
@@ -1294,10 +1331,13 @@ function renderOwed(){
   populateOwedFilter();
   renderSplitList();
 
-  document.getElementById('settleHistory').innerHTML = state.settlements.length ?
-    state.settlements.slice().reverse().map(s=>`<div class="ledgerRow" data-sid="${s.id}"><div class="info"><div class="merchant">Settled with ${escapeHTML(s.person)}</div><div class="who">${s.date}</div></div><div class="leader"></div><span class="amt">${fmt(s.amount)}</span></div>`).join('')
-    : emptyHTML('No settlements recorded');
-  bindSettlementClicks();
+  // Settlements are real ledger transactions now (category 'Settlement'),
+  // so this just filters and displays them the normal way -- tapping one
+  // opens the exact same edit/delete flow as any other transaction, no
+  // separate settlement-specific interaction needed anymore.
+  const settlementTx = approvedTx().filter(t=>t.category==='Settlement').sort((a,b)=>b.date.localeCompare(a.date) || (b.loggedAt||'').localeCompare(a.loggedAt||''));
+  document.getElementById('settleHistory').innerHTML = settlementTx.length ? settlementTx.map(rowHTML).join('') : emptyHTML('No settlements recorded');
+  bindRowClicks('settleHistory');
 }
 function populateOwedFilter(){
   const sel = document.getElementById('owedPersonFilter');
@@ -1317,20 +1357,6 @@ function renderSplitList(){
   }).join('') : emptyHTML(filterPerson==='all' ? 'No shared expenses yet' : `No shared expenses involving ${escapeHTML(filterPerson)}`);
 }
 document.getElementById('owedPersonFilter').addEventListener('change', renderSplitList);
-function bindSettlementClicks(){
-  document.querySelectorAll('#settleHistory .ledgerRow').forEach(el=>{
-    el.addEventListener('click', ()=>{
-      const sid = el.dataset.sid;
-      const s = state.settlements.find(x=>x.id===sid);
-      openGenModal(`<h3>Remove this settlement?</h3><p class="sub" style="margin-bottom:16px;">This will undo the ${fmt(s.amount)} settlement recorded with ${escapeHTML(s.person)}.</p>
-        <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn danger" id="confirmSettleDelete">Remove</button></div>`);
-      document.getElementById('confirmSettleDelete').onclick = ()=>{
-        state.settlements = state.settlements.filter(x=>x.id!==sid);
-        saveState(); closeGen(); renderAll(); toast('Settlement removed');
-      };
-    });
-  });
-}
 function renderBudgets(){
   const spend = categorySpendCurrentCycle();
   const wrap = document.getElementById('budgetList'); wrap.innerHTML='';
@@ -1770,25 +1796,52 @@ document.getElementById('settleBtn').onclick = ()=>{
   if(state.people.length===0){ toast('Add someone to split with first, in Settings'); return; }
   const balances = personBalances();
   const personOpts = state.people.map(p=>`<option value="${escapeHTML(p)}">${escapeHTML(p)} (${fmt(balances[p]||0)})</option>`).join('');
+  const acctOpts = state.bankAccounts.map(a=>`<option value="${a.id}">${escapeHTML(a.name)}</option>`).join('') || '<option value="">No accounts added yet</option>';
   openGenModal(`<h3>Settle Up</h3>
     <div class="field"><label>With</label><select id="settlePerson">${personOpts}</select></div>
-    <div class="field"><label>Amount Settled</label><input type="number" id="settleAmt" step="0.01"></div>
     <p class="sub" id="settleHint" style="margin-bottom:10px;"></p>
+    <div class="chipRow">
+      <div class="chip" data-dir="in">They Paid Me</div>
+      <div class="chip" data-dir="out">I Paid Them</div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Amount Settled</label><input type="number" id="settleAmt" step="0.01"></div>
+      <div class="field"><label>Date</label><input type="date" id="settleDate" value="${todayISO()}"></div>
+    </div>
+    <div class="field"><label id="settleAccountLabel">Which account?</label><select id="settleAccount">${acctOpts}</select></div>
+    <p class="sub" style="margin-top:-10px; margin-bottom:14px;">This creates a real entry in your Ledger, just like any other transaction — editable or deletable the same way.</p>
     <div class="modalActions"><button class="btn ghost" id="genCancel">Cancel</button><button class="btn" id="settleConfirm">Confirm</button></div>`);
+  let direction = null;
+  const chips = [...document.querySelectorAll('#genModal .chip')];
+  const setDirection = (dir)=>{
+    direction = dir;
+    chips.forEach(c=> c.classList.toggle('active', c.dataset.dir===dir));
+    document.getElementById('settleAccountLabel').textContent = dir==='in' ? 'Credit into which account?' : 'Pay from which account?';
+  };
+  chips.forEach(c=> c.onclick = ()=> setDirection(c.dataset.dir));
   const updateHint = ()=>{
     const person = document.getElementById('settlePerson').value;
     const bal = balances[person]||0;
     document.getElementById('settleAmt').value = Math.abs(bal).toFixed(2);
     document.getElementById('settleHint').textContent = bal>0.004 ? `${person} currently owes you ${fmt(bal)}.` : bal<-0.004 ? `You currently owe ${person} ${fmt(-bal)}.` : `You and ${person} are settled up.`;
+    setDirection(bal >= 0 ? 'in' : 'out'); // sensible default, still overridable by tapping the other chip
   };
   document.getElementById('settlePerson').onchange = updateHint; updateHint();
   document.getElementById('settleConfirm').onclick = ()=>{
     const person = document.getElementById('settlePerson').value;
     const amt = parseFloat(document.getElementById('settleAmt').value)||0;
-    const bal = balances[person]||0;
-    const delta = bal >= 0 ? -amt : amt; // always moves the balance toward zero, whichever direction the debt runs
-    state.settlements.push({ id: uid(), date: todayISO(), person, amount: amt, delta });
-    saveState(); closeGen(); renderAll(); toast('Settlement recorded');
+    if(!amt || amt<=0){ toast('Enter a valid amount'); return; }
+    const acct = document.getElementById('settleAccount').value;
+    if(!acct){ toast('Add a bank account first, in Accounts & Cards'); return; }
+    state.transactions.push({
+      id: uid(), amount: amt, merchant: `Settled with ${person}`,
+      note: direction==='in' ? `${person} paid you back` : `You paid ${person} back`,
+      date: document.getElementById('settleDate').value||todayISO(), loggedAt: new Date().toISOString(),
+      category: 'Settlement', settleDirection: direction, settlePerson: person,
+      paidBy: 'Me', paymentMethod: acct, cardPaid: null,
+      isShared: false, split: null, status: 'approved', source: 'manual'
+    });
+    saveState(); closeGen(); renderAll(); toast('Settlement recorded in your Ledger');
   };
 };
 
